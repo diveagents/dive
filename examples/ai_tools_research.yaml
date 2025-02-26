@@ -1,0 +1,73 @@
+name: 'AI Library Research Team'
+description: 'A team of researchers focused on identifying and analyzing the most popular open source AI libraries. The supervisor will delegate research tasks and compile the final report.'
+
+config:
+  default_provider: 'anthropic'
+  log_level: 'info'
+  cache_control: 'ephemeral'
+  enabled_tools:
+    - 'google_search'
+    - 'firecrawl'
+
+agents:
+  - name: 'Research Director'
+    role:
+      description: 'AI Research Director and Technical Expert. Assign specific research tasks to the research analysts, evaluate their findings, and prepare the final comprehensive report on popular AI libraries.'
+      is_supervisor: true
+      subordinates:
+        - 'Technical Analyst'
+        - 'Trends Analyst'
+    provider: 'anthropic'
+    cache_control: 'ephemeral'
+    max_active_tasks: 2
+    task_timeout: '15m'
+    chat_timeout: '3m'
+
+  - name: 'Technical Analyst'
+    role:
+      description: 'You are an expert in AI technologies and software engineering. Research technical aspects of AI libraries including features, architecture, and implementation details.'
+      is_supervisor: false
+    provider: 'anthropic'
+    tools:
+      - 'google_search'
+      - 'firecrawl'
+    cache_control: 'ephemeral'
+    max_active_tasks: 1
+    task_timeout: '10m'
+    chat_timeout: '2m'
+
+  - name: 'Trends Analyst'
+    role:
+      description: 'You are an expert in analyzing AI industry trends, community adoption, and popularity metrics. Focus on GitHub stars, downloads, community size, and industry adoption.'
+      is_supervisor: false
+    provider: 'anthropic'
+    tools:
+      - 'google_search'
+      - 'firecrawl'
+    cache_control: 'ephemeral'
+    max_active_tasks: 1
+    task_timeout: '10m'
+    chat_timeout: '2m'
+
+tasks:
+  - name: 'Identify Top Libraries'
+    description: 'Research and identify the top 10 most popular open source AI libraries across different categories (machine learning, deep learning, NLP, computer vision, etc.). Include metrics like GitHub stars, downloads, and industry adoption.'
+    assigned_agent: 'Trends Analyst'
+    timeout: '10m'
+
+  - name: 'Technical Deep Dive'
+    description: 'Research the technical aspects of the identified top AI libraries. Focus on key features, architecture, implementation languages, and unique selling points.'
+    assigned_agent: 'Technical Analyst'
+    dependencies:
+      - 'Identify Top Libraries'
+    timeout: '10m'
+
+  - name: 'Compile Comprehensive Report'
+    description: 'Create a comprehensive report on the most popular open source AI libraries, combining popularity metrics and technical analysis. Include a ranking, key features, and recommendations for different use cases.'
+    expected_output: 'A structured report with sections for each major AI category, highlighting the most popular libraries in each with both technical details and adoption metrics.'
+    assigned_agent: 'Research Director'
+    dependencies:
+      - 'Identify Top Libraries'
+      - 'Technical Deep Dive'
+    timeout: '15m'
+    output_file: 'popular_ai_libraries_report.md'
