@@ -263,3 +263,7 @@ Prior Output:
 
 Last Reported Status:
 {{ .ReportedStatus }}`
+
+var finishTaskNowPrompt = "Finish the task to the best of your ability now. Do not use any more tools. Respond with the complete response to the task's prompt."
+
+var continueTaskPrompt = "Continue working on the task."

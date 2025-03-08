@@ -21,6 +21,7 @@ type TaskOptions struct {
 	Context        string
 	OutputObject   interface{}
 	AssignedAgent  Agent
+	DocumentRefs   []DocumentRef
 }
 
 // Task represents a unit of work to be performed by an agent
@@ -32,6 +33,7 @@ type Task struct {
 	outputObject   interface{}
 	assignedAgent  Agent
 	dependencies   []string
+	documentRefs   []DocumentRef
 	outputFile     string
 	result         *TaskResult
 	timeout        time.Duration
@@ -56,24 +58,26 @@ func NewTask(opts TaskOptions) *Task {
 		outputFile:     opts.OutputFile,
 		assignedAgent:  opts.AssignedAgent,
 		dependencies:   opts.Dependencies,
+		documentRefs:   opts.DocumentRefs,
 		timeout:        opts.Timeout,
 		context:        opts.Context,
 		nameIsRandom:   nameIsRandom,
 	}
 }
 
-func (t *Task) Name() string               { return t.name }
-func (t *Task) Description() string        { return t.description }
-func (t *Task) ExpectedOutput() string     { return t.expectedOutput }
-func (t *Task) OutputFormat() OutputFormat { return t.outputFormat }
-func (t *Task) OutputObject() interface{}  { return t.outputObject }
-func (t *Task) AssignedAgent() Agent       { return t.assignedAgent }
-func (t *Task) Dependencies() []string     { return t.dependencies }
-func (t *Task) OutputFile() string         { return t.outputFile }
-func (t *Task) Result() *TaskResult        { return t.result }
-func (t *Task) Timeout() time.Duration     { return t.timeout }
-func (t *Task) Context() string            { return t.context }
-func (t *Task) DependenciesOutput() string { return t.depOutput }
+func (t *Task) Name() string                { return t.name }
+func (t *Task) Description() string         { return t.description }
+func (t *Task) ExpectedOutput() string      { return t.expectedOutput }
+func (t *Task) OutputFormat() OutputFormat  { return t.outputFormat }
+func (t *Task) OutputObject() interface{}   { return t.outputObject }
+func (t *Task) AssignedAgent() Agent        { return t.assignedAgent }
+func (t *Task) Dependencies() []string      { return t.dependencies }
+func (t *Task) DocumentRefs() []DocumentRef { return t.documentRefs }
+func (t *Task) OutputFile() string          { return t.outputFile }
+func (t *Task) Result() *TaskResult         { return t.result }
+func (t *Task) Timeout() time.Duration      { return t.timeout }
+func (t *Task) Context() string             { return t.context }
+func (t *Task) DependenciesOutput() string  { return t.depOutput }
 
 func (t *Task) SetContext(ctx string)               { t.context = ctx }
 func (t *Task) SetDependenciesOutput(output string) { t.depOutput = output }
@@ -104,8 +108,16 @@ func (t *Task) Validate() error {
 	return nil
 }
 
+type TaskPromptOptions struct {
+	Context string
+}
+
 // Prompt returns the LLM prompt for the task
-func (t *Task) Prompt() string {
+func (t *Task) Prompt(opts ...*TaskPromptOptions) string {
+	var options *TaskPromptOptions
+	if len(opts) > 0 {
+		options = opts[0]
+	}
 	var intro string
 	if t.name != "" && !t.nameIsRandom {
 		intro = fmt.Sprintf("Let's work on a new task named %q.", t.name)
@@ -122,16 +134,26 @@ func (t *Task) Prompt() string {
 	if t.outputFormat != "" {
 		lines = append(lines, fmt.Sprintf("Your response must be in %s format.", t.outputFormat))
 	}
-	result := fmt.Sprintf("%s\n\n```TASK\n%s\n```", intro, strings.Join(lines, "\n\n"))
-
+	promptParts := []string{
+		formatBlock(intro, "task", strings.Join(lines, "\n\n")),
+	}
+	var contextParts []string
 	if t.context != "" {
-		result += fmt.Sprintf("\n\nUse this context while working on the task:\n\n```CONTEXT\n%s\n```", t.context)
+		contextParts = append(contextParts, t.context)
+	}
+	if options != nil && options.Context != "" {
+		contextParts = append(contextParts, options.Context)
+	}
+	if len(contextParts) > 0 {
+		contextHeading := "Use this context while working on the task:"
+		promptParts = append(promptParts, formatBlock(contextHeading, "context", strings.Join(contextParts, "\n\n")))
 	}
 	if t.depOutput != "" {
-		result += fmt.Sprintf("\n\nHere is the output from this task's dependencies:\n\n```DEPENDENCIES\n%s\n```", t.depOutput)
+		depHeading := "Here is the output from this task's dependencies:"
+		promptParts = append(promptParts, formatBlock(depHeading, "dependencies", t.depOutput))
 	}
-	result += "\n\nPlease begin working on the task."
-	return result
+	promptParts = append(promptParts, "\n\nPlease begin working on the task.")
+	return strings.Join(promptParts, "\n\n")
 }
 
 var validFilenamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
@@ -144,4 +166,8 @@ func isSimpleFilename(filename string) bool {
 	// Only allow alphanumeric characters, dash, underscore, and period
 	// Must start with an alphanumeric character
 	return validFilenamePattern.MatchString(filename)
+}
+
+func formatBlock(heading, blockType, content string) string {
+	return fmt.Sprintf("%s\n\n```%s\n%s\n```", heading, blockType, content)
 }

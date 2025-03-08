@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/getstingrai/dive/graph"
@@ -137,4 +138,14 @@ func OrderTasks(tasks []*Task) ([]string, error) {
 		return nil, fmt.Errorf("invalid task dependencies: %w", err)
 	}
 	return order, nil
+}
+
+func dateString(t time.Time) string {
+	prompt := "The current date is " + t.Format("January 2, 2006") + "."
+	prompt += " It is a " + t.Format("Monday") + "."
+	return prompt
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }

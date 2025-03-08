@@ -1,6 +1,7 @@
 package teamconf
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ type Team struct {
 	Tools       []ToolDefinition `yaml:"tools,omitempty" json:"tools,omitempty"`
 	Config      Config           `yaml:"config,omitempty" json:"config,omitempty"`
 	Variables   []Variable       `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Documents   []Document       `yaml:"documents,omitempty" json:"documents,omitempty"`
 }
 
 // Config is a serializable high-level configuration for Dive
@@ -65,6 +67,7 @@ type Task struct {
 	OutputFormat   string   `yaml:"output_format,omitempty" json:"output_format,omitempty" hcl:"output_format,optional"`
 	AssignedAgent  string   `yaml:"assigned_agent,omitempty" json:"assigned_agent,omitempty" hcl:"assigned_agent,optional"`
 	Dependencies   []string `yaml:"dependencies,omitempty" json:"dependencies,omitempty" hcl:"dependencies,optional"`
+	Documents      []string `yaml:"documents,omitempty" json:"documents,omitempty" hcl:"documents,optional"`
 	OutputFile     string   `yaml:"output_file,omitempty" json:"output_file,omitempty" hcl:"output_file,optional"`
 	Timeout        string   `yaml:"timeout,omitempty" json:"timeout,omitempty" hcl:"timeout,optional"`
 	Context        string   `yaml:"context,omitempty" json:"context,omitempty" hcl:"context,optional"`
@@ -72,6 +75,18 @@ type Task struct {
 
 // ToolDefinition used for serializing tool configurations
 type ToolDefinition map[string]interface{}
+
+// Document represents a document that can be referenced by agents and tasks
+type Document struct {
+	ID          string   `yaml:"id,omitempty" json:"id,omitempty" hcl:"id,label"`
+	Name        string   `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
+	Description string   `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
+	Path        string   `yaml:"path,omitempty" json:"path,omitempty" hcl:"path,optional"`
+	URI         string   `yaml:"uri,omitempty" json:"uri,omitempty" hcl:"uri,optional"`
+	Content     string   `yaml:"content,omitempty" json:"content,omitempty" hcl:"content,optional"`
+	ContentType string   `yaml:"content_type,omitempty" json:"content_type,omitempty" hcl:"content_type,optional"`
+	References  []string `yaml:"references,omitempty" json:"references,omitempty" hcl:"references,optional"`
+}
 
 // LoadFile loads a Team configuration from a file. The file extension is
 // used to determine the configuration format:
@@ -171,8 +186,9 @@ func TeamFromFile(filePath string, opts ...BuildOption) (dive.Team, error) {
 }
 
 type buildOptions struct {
-	Variables map[string]interface{}
-	Logger    slogger.Logger
+	Variables     map[string]interface{}
+	Logger        slogger.Logger
+	DocumentStore dive.DocumentStore
 }
 
 type BuildOption func(*buildOptions)
@@ -189,8 +205,13 @@ func WithLogger(logger slogger.Logger) BuildOption {
 	}
 }
 
-func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
+func WithDocumentStore(store dive.DocumentStore) BuildOption {
+	return func(o *buildOptions) {
+		o.DocumentStore = store
+	}
+}
 
+func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 	buildOpts := &buildOptions{}
 	for _, opt := range opts {
 		opt(buildOpts)
@@ -241,13 +262,31 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 		tasks = append(tasks, task)
 	}
 
+	if len(def.Documents) > 0 && buildOpts.DocumentStore == nil {
+		return nil, fmt.Errorf("document store is required when documents are defined")
+	}
+
+	documents := make(map[string]dive.Document, len(def.Documents))
+	for _, docRef := range def.Documents {
+		doc, err := ResolveDocument(context.Background(), buildOpts.DocumentStore, docRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve document %s: %w", docRef.Name, err)
+		}
+		documents[docRef.Name] = doc
+	}
+
 	return dive.NewTeam(dive.TeamOptions{
 		Name:        def.Name,
 		Description: def.Description,
 		Agents:      agents,
 		Tasks:       tasks,
+		Documents:   buildOpts.DocumentStore,
 		Logger:      logger,
 		LogLevel:    logLevel,
 		OutputDir:   def.Config.OutputDir,
 	})
+}
+
+func ResolveDocument(ctx context.Context, store dive.DocumentStore, ref Document) (dive.Document, error) {
+	return nil, nil
 }

@@ -18,6 +18,7 @@ type HCLTeam struct {
 	Config      Config        `hcl:"config,block"`
 	Variables   []HCLVariable `hcl:"variable,block"`
 	Tools       []HCLTool     `hcl:"tool,block"`
+	Documents   []Document    `hcl:"document,block"`
 }
 
 // HCLTool represents a tool definition in HCL
@@ -79,6 +80,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			{Type: "task", LabelNames: []string{"name"}},
 			{Type: "config", LabelNames: []string{}},
 			{Type: "tool", LabelNames: []string{"name"}},
+			{Type: "document", LabelNames: []string{"name"}},
 		},
 		Attributes: []hcl.AttributeSchema{
 			{Name: "name", Required: false},
@@ -146,6 +148,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	taskRefs := make(map[string]cty.Value)
 	agentRefs := make(map[string]cty.Value)
 	toolRefs := make(map[string]cty.Value)
+	docRefs := make(map[string]cty.Value)
 
 	// First pass through blocks to collect task, agent, and tool names for references
 	for _, block := range content.Blocks {
@@ -159,6 +162,9 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 		case "tool":
 			toolName := block.Labels[0]
 			toolRefs[toolName] = cty.StringVal(toolName)
+		case "document":
+			docName := block.Labels[0]
+			docRefs[docName] = cty.StringVal(docName)
 		}
 	}
 
@@ -166,6 +172,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	evalCtx.Variables["tasks"] = cty.ObjectVal(taskRefs)
 	evalCtx.Variables["agents"] = cty.ObjectVal(agentRefs)
 	evalCtx.Variables["tools"] = cty.ObjectVal(toolRefs)
+	evalCtx.Variables["documents"] = cty.ObjectVal(docRefs)
 
 	// Use a custom schema to handle blocks with variables
 	fullContent, diags := file.Body.Content(&hcl.BodySchema{
@@ -175,6 +182,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			{Type: "config", LabelNames: []string{}},
 			{Type: "variable", LabelNames: []string{"name"}},
 			{Type: "tool", LabelNames: []string{"name"}},
+			{Type: "document", LabelNames: []string{"name"}},
 		},
 		Attributes: []hcl.AttributeSchema{
 			{Name: "name", Required: false},
@@ -221,6 +229,56 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 				return nil, fmt.Errorf("failed to decode config block: %s", diags.Error())
 			}
 			def.Config = config
+
+		case "document":
+			var doc Document
+			doc.Name = block.Labels[0]
+			content, diags := block.Body.Content(&hcl.BodySchema{
+				Attributes: []hcl.AttributeSchema{
+					{Name: "description", Required: false},
+					{Name: "path", Required: false},
+					{Name: "content", Required: false},
+					{Name: "references", Required: false},
+				},
+			})
+			if diags.HasErrors() {
+				return nil, fmt.Errorf("failed to decode document block: %s", diags.Error())
+			}
+
+			// Process each attribute
+			for name, attr := range content.Attributes {
+				val, diags := attr.Expr.Value(evalCtx)
+				if diags.HasErrors() {
+					return nil, fmt.Errorf("failed to evaluate %s: %s", name, diags.Error())
+				}
+
+				switch name {
+				case "description":
+					if val.Type() == cty.String {
+						doc.Description = val.AsString()
+					}
+				case "path":
+					if val.Type() == cty.String {
+						doc.Path = val.AsString()
+					}
+				case "content":
+					if val.Type() == cty.String {
+						doc.Content = val.AsString()
+					}
+				case "references":
+					if !val.CanIterateElements() {
+						return nil, fmt.Errorf("references must be a list")
+					}
+					for it := val.ElementIterator(); it.Next(); {
+						_, v := it.Element()
+						if v.Type() != cty.String {
+							return nil, fmt.Errorf("reference must be a string")
+						}
+						doc.References = append(doc.References, v.AsString())
+					}
+				}
+			}
+			def.Documents = append(def.Documents, doc)
 
 		case "agent":
 			var agent Agent
@@ -348,6 +406,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					{Name: "output_format", Required: false},
 					{Name: "assigned_agent", Required: false},
 					{Name: "dependencies", Required: false},
+					{Name: "documents", Required: false},
 					{Name: "output_file", Required: false},
 					{Name: "timeout", Required: false},
 					{Name: "context", Required: false},
@@ -391,6 +450,17 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 							return nil, fmt.Errorf("dependency must be a string")
 						}
 						task.Dependencies = append(task.Dependencies, v.AsString())
+					}
+				case "documents":
+					if !val.CanIterateElements() {
+						return nil, fmt.Errorf("documents must be a list")
+					}
+					for it := val.ElementIterator(); it.Next(); {
+						_, v := it.Element()
+						if v.Type() != cty.String {
+							return nil, fmt.Errorf("document must be a string")
+						}
+						task.Documents = append(task.Documents, v.AsString())
 					}
 				case "output_file":
 					if val.Type() == cty.String {

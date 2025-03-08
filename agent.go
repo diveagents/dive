@@ -31,6 +31,12 @@ var (
 	_ EventHandlerAgent = &DiveAgent{}
 )
 
+// chatThread contains the message history for a specific chat thread ID
+type chatThread struct {
+	ID       string
+	Messages []*llm.Message
+}
+
 // AgentOptions are used to configure an Agent.
 type AgentOptions struct {
 	Name               string
@@ -55,12 +61,7 @@ type AgentOptions struct {
 	FrequencyPenalty   *float64
 	ReasoningFormat    string
 	ReasoningEffort    string
-}
-
-// chatThread contains a message history for a thread ID
-type chatThread struct {
-	ID       string
-	Messages []*llm.Message
+	DateAwareness      *bool
 }
 
 // DiveAgent is the standard implementation of the Agent interface.
@@ -95,6 +96,7 @@ type DiveAgent struct {
 	frequencyPenalty   *float64
 	reasoningFormat    string
 	reasoningEffort    string
+	dateAwareness      *bool
 
 	// Holds incoming messages to be processed by the agent's run loop
 	mailbox chan interface{}
@@ -152,6 +154,7 @@ func NewAgent(opts AgentOptions) *DiveAgent {
 		logger:             opts.Logger,
 		logLevel:           strings.ToLower(opts.LogLevel),
 		threads:            make(map[string]*chatThread),
+		dateAwareness:      opts.DateAwareness,
 	}
 
 	tools := make([]llm.Tool, len(opts.Tools))
@@ -314,9 +317,6 @@ func (a *DiveAgent) IsRunning() bool {
 	return a.running
 }
 
-// May need to be able to express whether this is the beginning of a conversation
-// or a continuation. Pass a conversation ID? Multiple messages? What if two people
-// are talking to the same agent?
 func (a *DiveAgent) Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
@@ -404,7 +404,7 @@ func (a *DiveAgent) Work(ctx context.Context, task *Task) (Stream, error) {
 		return nil, fmt.Errorf("agent is not running")
 	}
 
-	// Stream to be returned to the caller so it can wait for results async
+	// Stream to be returned to the caller so it can wait for results
 	stream := NewDiveStream()
 
 	message := messageWork{
@@ -514,7 +514,7 @@ func (a *DiveAgent) handleChat(m messageChat) {
 	}
 	messages = append(messages, m.message)
 
-	response, updatedMessages, err := a.executeToolLoop(
+	response, updatedMessages, err := a.generate(
 		ctx,
 		messages,
 		systemPrompt,
@@ -551,17 +551,16 @@ func (a *DiveAgent) getSystemPromptForMode(mode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Append the current date
-	now := time.Now().UTC()
-	prompt += "\n\nThe current date is " + now.Format("January 2, 2006") + "."
-	prompt += " It is a " + now.Format("Monday") + "."
+	if a.dateAwareness == nil || *a.dateAwareness {
+		prompt = fmt.Sprintf("%s\n\n%s", prompt, dateString(time.Now()))
+	}
 	return prompt, nil
 }
 
-// executeToolLoop runs the LLM generation and tool execution loop.
+// generate runs the LLM generation and tool execution loop.
 // It handles the interaction between the agent and the LLM, including tool calls.
 // Returns the final LLM response and any error that occurred.
-func (a *DiveAgent) executeToolLoop(
+func (a *DiveAgent) generate(
 	ctx context.Context,
 	messages []*llm.Message,
 	systemPrompt string,
@@ -691,7 +690,8 @@ func (a *DiveAgent) executeToolLoop(
 			if !ok {
 				return nil, updatedMessages, fmt.Errorf("tool call for unknown tool: %q", toolCall.Name)
 			}
-			a.logger.Debug("tool call",
+			a.logger.Debug(
+				"tool call",
 				"agent_name", a.name,
 				"tool_name", toolCall.Name,
 				"tool_input", toolCall.Input,
@@ -724,7 +724,8 @@ func (a *DiveAgent) executeToolLoop(
 				Type: llm.ContentTypeText,
 				Text: "Do not use any more tools. You must respond with your final answer now.",
 			})
-			a.logger.Debug("adding tool use limit instruction",
+			a.logger.Debug(
+				"adding tool use limit instruction",
 				"agent", a.name,
 				"task", taskName,
 				"generation_number", i+1,
@@ -736,51 +737,128 @@ func (a *DiveAgent) executeToolLoop(
 	return response, updatedMessages, nil
 }
 
-func (a *DiveAgent) handleTask(state *taskState) error {
+func (a *DiveAgent) documentStore() DocumentStore {
+	return a.team.DocumentStore()
+}
+
+func (a *DiveAgent) getTaskDocumentsMessage(ctx context.Context, task *Task) (*llm.Message, error) {
+	documents, err := a.loadTaskDocuments(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	var parts []string
+	for _, doc := range documents {
+		text := fmt.Sprintf("<document id=%q name=%q>\n%s\n</document>",
+			doc.ID(), doc.Name(), doc.Content())
+		parts = append(parts, text)
+	}
+	return llm.NewUserMessage(strings.Join(parts, "\n\n")), nil
+}
+
+// loadTaskDocuments loads the content of documents referenced by a task
+func (a *DiveAgent) loadTaskDocuments(ctx context.Context, task *Task) ([]Document, error) {
+	if len(task.DocumentRefs()) == 0 {
+		return nil, nil
+	}
+	var documents []Document
+	for _, ref := range task.DocumentRefs() {
+		var err error
+		var doc Document
+		if ref.URI != "" {
+			doc, err = a.documentStore().GetDocumentByURI(ctx, ref.URI)
+			if err != nil {
+				return nil, fmt.Errorf("document with uri %q not found", ref.URI)
+			}
+		} else if ref.ID != "" {
+			doc, err = a.documentStore().GetDocument(ctx, ref.ID)
+			if err != nil {
+				return nil, fmt.Errorf("document with id %q not found", ref.ID)
+			}
+		} else if ref.Glob != "" {
+			// Validate glob pattern can be used as path prefix
+			if !strings.HasSuffix(ref.Glob, "/*") || strings.Contains(ref.Glob[:len(ref.Glob)-2], "*") {
+				return nil, fmt.Errorf("invalid glob pattern %q - only trailing '/*' is supported", ref.Glob)
+			}
+			// Convert glob to path prefix by removing the trailing "/*"
+			pathPrefix := ref.Glob[:len(ref.Glob)-2]
+			docs, err := a.documentStore().ListDocuments(ctx, &ListDocumentInput{
+				PathPrefix: pathPrefix,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error listing documents with path prefix %q", pathPrefix)
+			}
+			documents = append(documents, docs.Items...)
+		} else {
+
+		}
+		documents = append(documents, doc)
+	}
+	if len(documents) == 0 {
+		return nil, fmt.Errorf("no documents found for task %q", task.Name())
+	}
+	return documents, nil
+}
+
+func (a *DiveAgent) handleTask(ctx context.Context, state *taskState) error {
 	task := state.Task
+
 	timeout := task.Timeout()
 	if timeout == 0 {
 		timeout = a.taskTimeout
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	logger := a.logger.With(
 		"agent_name", a.name,
 		"task_name", task.Name(),
+		"timeout", timeout.String(),
 	)
 
 	systemPrompt, err := a.getSystemPromptForMode("task")
 	if err != nil {
 		return err
 	}
+
+	documentsMessage, err := a.getTaskDocumentsMessage(ctx, task)
+	if err != nil {
+		return err
+	}
+
 	messages := []*llm.Message{}
 
 	if len(state.Messages) == 0 {
-		// We're starting a new task
-		recentTasksMessage, ok := a.getTasksHistoryMessage()
-		if ok {
+		// Starting a task
+		if recentTasksMessage, ok := a.getTasksHistoryMessage(); ok {
 			messages = append(messages, recentTasksMessage)
 		}
+		if documentsMessage != nil {
+			messages = append(messages, documentsMessage)
+		}
 		messages = append(messages, llm.NewUserMessage(task.Prompt()))
-	} else if len(state.Messages) < 32 {
-		// We're resuming a task and can still work some more
-		messages = append(messages, state.Messages...)
-		messages = append(messages, llm.NewUserMessage("Continue working on the task."))
 	} else {
-		// We're resuming a task but need to wrap it up
+		// Resuming a task
 		messages = append(messages, state.Messages...)
-		messages = append(messages, llm.NewUserMessage("Finish the task to the best of your ability now. Do not use any more tools. Respond with the complete response to the task's prompt."))
+		if len(state.Messages) < 32 {
+			messages = append(messages, llm.NewUserMessage(continueTaskPrompt))
+		} else {
+			messages = append(messages, llm.NewUserMessage(finishTaskNowPrompt))
+		}
 	}
 
-	logger.Info("handling task",
+	logger.Info(
+		"handling task",
 		"status", state.Status,
 		"truncated_description", TruncateText(task.Description(), 10),
 		"truncated_prompt", TruncateText(task.Prompt(), 10),
+		"message_count", len(messages),
 	)
 
-	// Execute the LLM generation and tool execution loop
-	response, updatedMessages, err := a.executeToolLoop(
+	// Run the LLM generation and any resulting tool calls
+	response, updatedMessages, err := a.generate(
 		ctx,
 		messages,
 		systemPrompt,
@@ -790,46 +868,23 @@ func (a *DiveAgent) handleTask(state *taskState) error {
 	if err != nil {
 		return err
 	}
-
-	// Update task state based on the last response from the LLM. It should
-	// contain thinking, primary output, then status. We could concatenate
-	// the new output with prior output, but for now it seems like it's better
-	// not to, and to request a full final response instead.
-	taskResponse := ParseStructuredResponse(response.Message().Text())
-	state.Output = taskResponse.Text
-	state.Reasoning = taskResponse.Thinking
-	state.StatusDescription = taskResponse.StatusDescription
-	state.Messages = updatedMessages
-
-	usage := response.Usage()
-	state.Usage.InputTokens += usage.InputTokens
-	state.Usage.OutputTokens += usage.OutputTokens
-	state.Usage.CacheCreationInputTokens += usage.CacheCreationInputTokens
-	state.Usage.CacheReadInputTokens += usage.CacheReadInputTokens
-
-	// For now, if the status description is empty, let's assume it is complete.
-	// We may need to make this configurable in the future.
-	if taskResponse.StatusDescription == "" {
-		state.Status = TaskStatusCompleted
-		logger.Warn("defaulting to completed status")
-	} else {
-		state.Status = taskResponse.Status()
-	}
+	state.TrackResponse(response, updatedMessages)
 
 	logger.Info("task updated",
 		"status", state.Status,
-		"status_description", state.StatusDescription,
-		"truncated_output", TruncateText(state.Output, 10),
+		"status_description", state.StatusDescription(),
 	)
 	return nil
 }
 
 func (a *DiveAgent) doSomeWork() {
 
-	publish := func(event *StreamEvent) {
-		if a.activeTask.Publisher != nil {
-			a.activeTask.Publisher.Send(context.Background(), event)
+	// Helper function to safely send events to the active task's publisher
+	safePublish := func(event *StreamEvent) error {
+		if a.activeTask.Publisher == nil {
+			return nil
 		}
+		return a.activeTask.Publisher.Send(context.Background(), event)
 	}
 
 	// Activate the next task if there is one and we're idle
@@ -843,7 +898,7 @@ func (a *DiveAgent) doSomeWork() {
 		} else {
 			a.activeTask.Paused = false
 		}
-		publish(&StreamEvent{
+		safePublish(&StreamEvent{
 			Type:      "task.activated",
 			TaskName:  a.activeTask.Task.Name(),
 			AgentName: a.name,
@@ -861,13 +916,13 @@ func (a *DiveAgent) doSomeWork() {
 	taskName := a.activeTask.Task.Name()
 
 	// Make progress on the active task
-	err := a.handleTask(a.activeTask)
+	err := a.handleTask(context.Background(), a.activeTask)
 
 	// An error deactivates the task and pushes an error event on the stream
 	if err != nil {
 		a.activeTask.Status = TaskStatusError
 		a.rememberTask(a.activeTask)
-		publish(&StreamEvent{
+		safePublish(&StreamEvent{
 			Type:      "task.error",
 			TaskName:  taskName,
 			AgentName: a.name,
@@ -897,14 +952,14 @@ func (a *DiveAgent) doSomeWork() {
 			"task", a.activeTask.Task.Name(),
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		publish(&StreamEvent{
+		safePublish(&StreamEvent{
 			Type:      "task.result",
 			TaskName:  taskName,
 			AgentName: a.name,
 			TaskResult: &TaskResult{
 				Task:    a.activeTask.Task,
-				Content: a.activeTask.Output,
 				Usage:   a.activeTask.Usage,
+				Content: a.activeTask.LastOutput(),
 			},
 		})
 		if a.activeTask.Publisher != nil {
@@ -921,7 +976,7 @@ func (a *DiveAgent) doSomeWork() {
 			"status_description", a.activeTask.StatusDescription,
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		publish(&StreamEvent{
+		safePublish(&StreamEvent{
 			Type:      "task.progress",
 			TaskName:  taskName,
 			AgentName: a.name,
@@ -933,7 +988,7 @@ func (a *DiveAgent) doSomeWork() {
 			"agent", a.name,
 			"task", a.activeTask.Task.Name(),
 		)
-		publish(&StreamEvent{
+		safePublish(&StreamEvent{
 			Type:      "task.paused",
 			TaskName:  taskName,
 			AgentName: a.name,
@@ -950,7 +1005,7 @@ func (a *DiveAgent) doSomeWork() {
 			"status_description", a.activeTask.StatusDescription,
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		publish(&StreamEvent{
+		safePublish(&StreamEvent{
 			Type:      "task.error",
 			TaskName:  taskName,
 			AgentName: a.name,
@@ -988,7 +1043,7 @@ func (a *DiveAgent) getTasksHistory() string {
 		history[i] = fmt.Sprintf("- task: %q status: %q output: %q\n",
 			TruncateText(title, 8),
 			status.Status,
-			TruncateText(replaceNewlines(status.Output), 8),
+			TruncateText(replaceNewlines(status.LastOutput()), 8),
 		)
 	}
 	result := strings.Join(history, "\n")

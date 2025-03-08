@@ -25,6 +25,7 @@ type DiveTeam struct {
 	initialTasks []*Task
 	outputDir    string
 	outputPlugin OutputPlugin
+	documents    DocumentStore
 	logLevel     string
 	logger       slogger.Logger
 	mutex        sync.Mutex
@@ -36,6 +37,7 @@ type TeamOptions struct {
 	Description  string
 	Agents       []Agent
 	Tasks        []*Task
+	Documents    DocumentStore
 	LogLevel     string
 	Logger       slogger.Logger
 	OutputDir    string
@@ -67,6 +69,7 @@ func NewTeam(opts TeamOptions) (*DiveTeam, error) {
 		logger:       opts.Logger,
 		outputDir:    opts.OutputDir,
 		outputPlugin: opts.OutputPlugin,
+		documents:    opts.Documents,
 	}
 	for _, task := range opts.Tasks {
 		if err := task.Validate(); err != nil {
@@ -115,9 +118,9 @@ func (t *DiveTeam) Name() string {
 	return t.name
 }
 
-// OutputDir returns the output directory for the team.
-func (t *DiveTeam) OutputDir() string {
-	return t.outputDir
+// DocumentStore returns the document store for the team.
+func (t *DiveTeam) DocumentStore() DocumentStore {
+	return t.documents
 }
 
 // IsRunning returns true if the team is active.

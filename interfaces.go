@@ -45,8 +45,8 @@ type Team interface {
 	// IsRunning returns true if the team is running
 	IsRunning() bool
 
-	// OutputDir returns the output directory for the team
-	OutputDir() string
+	// DocumentStore returns the document store for the team
+	DocumentStore() DocumentStore
 }
 
 type generateOptions struct {
@@ -166,20 +166,4 @@ type StreamEvent struct {
 
 	// Error conveys an error message
 	Error string `json:"error,omitempty"`
-}
-
-// OutputPlugin is a plugin that can be used to store and retrieve task outputs
-type OutputPlugin interface {
-	// Name of the output plugin
-	Name() string
-
-	// OutputExists returns true if the output for the given task and fingerprint
-	// already exists.
-	OutputExists(ctx context.Context, name, fingerprint string) (bool, error)
-
-	// ReadOutput reads the output for the given task and fingerprint
-	ReadOutput(ctx context.Context, name, fingerprint string) (string, error)
-
-	// WriteOutput writes the output for the given task and fingerprint
-	WriteOutput(ctx context.Context, name, fingerprint string, output string) error
 }
