@@ -288,5 +288,57 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 }
 
 func ResolveDocument(ctx context.Context, store dive.DocumentStore, ref Document) (dive.Document, error) {
-	return nil, nil
+	// If content is provided directly, create an in-memory document
+	if ref.Content != "" {
+		return dive.NewTextDocument(dive.DocumentOptions{
+			ID:          ref.ID,
+			Name:        ref.Name,
+			Description: ref.Description,
+			Content:     ref.Content,
+			ContentType: ref.ContentType,
+			Tags:        ref.References, // Use References as tags
+		}), nil
+	}
+
+	// If path is provided, create a document with that URI
+	if ref.Path != "" {
+		// If path is a glob pattern, it will be handled by the document store
+		// when listing documents
+		doc := dive.NewTextDocument(dive.DocumentOptions{
+			ID:          ref.ID,
+			Name:        ref.Name,
+			Description: ref.Description,
+			URI:         ref.Path,
+			ContentType: ref.ContentType,
+			Tags:        ref.References,
+		})
+
+		// Store the document so it can be retrieved later
+		if err := store.PutDocument(ctx, doc); err != nil {
+			return nil, fmt.Errorf("failed to store document %q: %w", ref.Name, err)
+		}
+
+		return doc, nil
+	}
+
+	// If URI is provided, create a document with that URI
+	if ref.URI != "" {
+		doc := dive.NewTextDocument(dive.DocumentOptions{
+			ID:          ref.ID,
+			Name:        ref.Name,
+			Description: ref.Description,
+			URI:         ref.URI,
+			ContentType: ref.ContentType,
+			Tags:        ref.References,
+		})
+
+		// Store the document so it can be retrieved later
+		if err := store.PutDocument(ctx, doc); err != nil {
+			return nil, fmt.Errorf("failed to store document %q: %w", ref.Name, err)
+		}
+
+		return doc, nil
+	}
+
+	return nil, fmt.Errorf("document %q must have either content, path, or uri", ref.Name)
 }

@@ -138,6 +138,14 @@ func buildTask(
 		}
 	}
 
+	// Convert document names to document refs
+	var documentRefs []dive.DocumentRef
+	for _, docName := range taskDef.Documents {
+		documentRefs = append(documentRefs, dive.DocumentRef{
+			Name: docName,
+		})
+	}
+
 	return dive.NewTask(dive.TaskOptions{
 		Name:           taskDef.Name,
 		Description:    taskDef.Description,
@@ -148,5 +156,6 @@ func buildTask(
 		OutputFile:     taskDef.OutputFile,
 		Timeout:        timeout,
 		Context:        taskDef.Context,
+		DocumentRefs:   documentRefs,
 	}), nil
 }

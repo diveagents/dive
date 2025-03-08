@@ -235,9 +235,12 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			doc.Name = block.Labels[0]
 			content, diags := block.Body.Content(&hcl.BodySchema{
 				Attributes: []hcl.AttributeSchema{
+					{Name: "id", Required: false},
 					{Name: "description", Required: false},
 					{Name: "path", Required: false},
+					{Name: "uri", Required: false},
 					{Name: "content", Required: false},
+					{Name: "content_type", Required: false},
 					{Name: "references", Required: false},
 				},
 			})
@@ -253,6 +256,10 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 				}
 
 				switch name {
+				case "id":
+					if val.Type() == cty.String {
+						doc.ID = val.AsString()
+					}
 				case "description":
 					if val.Type() == cty.String {
 						doc.Description = val.AsString()
@@ -261,9 +268,17 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						doc.Path = val.AsString()
 					}
+				case "uri":
+					if val.Type() == cty.String {
+						doc.URI = val.AsString()
+					}
 				case "content":
 					if val.Type() == cty.String {
 						doc.Content = val.AsString()
+					}
+				case "content_type":
+					if val.Type() == cty.String {
+						doc.ContentType = val.AsString()
 					}
 				case "references":
 					if !val.CanIterateElements() {

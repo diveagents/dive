@@ -746,6 +746,9 @@ func (a *DiveAgent) getTaskDocumentsMessage(ctx context.Context, task *Task) (*l
 	if err != nil {
 		return nil, err
 	}
+	if len(documents) == 0 {
+		return nil, nil
+	}
 	var parts []string
 	for _, doc := range documents {
 		text := fmt.Sprintf("<document id=%q name=%q>\n%s\n</document>",
@@ -764,15 +767,10 @@ func (a *DiveAgent) loadTaskDocuments(ctx context.Context, task *Task) ([]Docume
 	for _, ref := range task.DocumentRefs() {
 		var err error
 		var doc Document
-		if ref.URI != "" {
-			doc, err = a.documentStore().GetDocumentByURI(ctx, ref.URI)
+		if ref.Name != "" {
+			doc, err = a.documentStore().GetDocument(ctx, ref.Name)
 			if err != nil {
-				return nil, fmt.Errorf("document with uri %q not found", ref.URI)
-			}
-		} else if ref.ID != "" {
-			doc, err = a.documentStore().GetDocument(ctx, ref.ID)
-			if err != nil {
-				return nil, fmt.Errorf("document with id %q not found", ref.ID)
+				return nil, fmt.Errorf("document with name %q not found", ref.Name)
 			}
 		} else if ref.Glob != "" {
 			// Validate glob pattern can be used as path prefix
@@ -789,7 +787,7 @@ func (a *DiveAgent) loadTaskDocuments(ctx context.Context, task *Task) ([]Docume
 			}
 			documents = append(documents, docs.Items...)
 		} else {
-
+			return nil, fmt.Errorf("unsupported document reference: %q", ref)
 		}
 		documents = append(documents, doc)
 	}

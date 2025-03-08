@@ -114,18 +114,15 @@ func TestAgentTask(t *testing.T) {
 		LLM:          anthropic.New(),
 		LogLevel:     "info",
 	})
-
 	err := agent.Start(ctx)
 	require.NoError(t, err)
 	defer agent.Stop(ctx)
 
-	task := NewTask(TaskOptions{
+	stream, err := agent.Work(ctx, NewTask(TaskOptions{
 		Name:           "Poem",
 		Description:    "Write a cat poem",
 		ExpectedOutput: "A short poem about a cat",
-	})
-
-	stream, err := agent.Work(ctx, task)
+	}))
 	require.NoError(t, err)
 
 	var result *TaskResult
@@ -133,24 +130,34 @@ func TestAgentTask(t *testing.T) {
 	for running {
 		select {
 		case event := <-stream.Channel():
+			fmt.Println("event:", event)
+			if event == nil {
+				t.Fatal("received nil event from stream")
+			}
 			if event.TaskResult != nil {
 				result = event.TaskResult
 				running = false
+			} else if event.Error != "" {
+				t.Fatal("received error event from stream:", event.Error)
 			}
 		case <-ctx.Done():
 			t.Fatal("context canceled while waiting for task result")
+		case <-time.After(10 * time.Second):
+			t.Fatal("timeout waiting for task result")
 		}
 	}
 
-	content := strings.ToLower(result.Content)
+	require.NotNil(t, result, "task result should not be nil")
+	require.NotEmpty(t, result.Content, "task result content should not be empty")
 
+	content := strings.ToLower(result.Content)
 	matches := 0
 	for _, word := range []string{"cat", "whiskers", "paws"} {
 		if strings.Contains(content, word) {
 			matches += 1
 		}
 	}
-	require.Greater(t, matches, 0)
+	require.Greater(t, matches, 0, "poem should contain at least one cat-related word")
 }
 
 func TestAgentSystemPromptWithoutTeam(t *testing.T) {

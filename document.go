@@ -8,9 +8,7 @@ var (
 
 // DocumentRef is used to point to one or more matching documents
 type DocumentRef struct {
-	ID   string   `json:"id,omitempty"`
 	Name string   `json:"name,omitempty"`
-	URI  string   `json:"uri,omitempty"`
 	Tags []string `json:"tags,omitempty"`
 	Glob string   `json:"glob,omitempty"`
 }
@@ -35,12 +33,13 @@ type Document interface {
 	Content() string
 	ContentType() string
 	Tags() []string
+	Chunks() []*Chunk
 }
 
-// ListDocumentInput is the input for listing documents
+// ListDocumentInput specifies search criteria for documents in a document store
 type ListDocumentInput struct {
-	Name       string
 	PathPrefix string
+	Recursive  bool
 	Tags       []string
 }
 
@@ -54,9 +53,6 @@ type ListDocumentOutput struct {
 type DocumentStore interface {
 	// GetDocument returns a document by name
 	GetDocument(ctx context.Context, name string) (Document, error)
-
-	// GetDocumentByURI returns a document by uri
-	GetDocumentByURI(ctx context.Context, uri string) (Document, error)
 
 	// ListDocuments lists documents
 	ListDocuments(ctx context.Context, input *ListDocumentInput) (*ListDocumentOutput, error)
@@ -152,4 +148,9 @@ func (d *TextDocument) SetContent(content string) {
 
 func (d *TextDocument) IncrementVersion() {
 	d.version++
+}
+
+func (d *TextDocument) Chunks() []*Chunk {
+	// TODO
+	return []*Chunk{}
 }
