@@ -236,12 +236,12 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			content, diags := block.Body.Content(&hcl.BodySchema{
 				Attributes: []hcl.AttributeSchema{
 					{Name: "id", Required: false},
+					{Name: "name", Required: false},
 					{Name: "description", Required: false},
 					{Name: "path", Required: false},
-					{Name: "uri", Required: false},
 					{Name: "content", Required: false},
 					{Name: "content_type", Required: false},
-					{Name: "references", Required: false},
+					{Name: "tags", Required: false},
 				},
 			})
 			if diags.HasErrors() {
@@ -260,6 +260,10 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						doc.ID = val.AsString()
 					}
+				case "name":
+					if val.Type() == cty.String {
+						doc.Name = val.AsString()
+					}
 				case "description":
 					if val.Type() == cty.String {
 						doc.Description = val.AsString()
@@ -267,10 +271,6 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 				case "path":
 					if val.Type() == cty.String {
 						doc.Path = val.AsString()
-					}
-				case "uri":
-					if val.Type() == cty.String {
-						doc.URI = val.AsString()
 					}
 				case "content":
 					if val.Type() == cty.String {
@@ -280,16 +280,16 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						doc.ContentType = val.AsString()
 					}
-				case "references":
+				case "tags":
 					if !val.CanIterateElements() {
-						return nil, fmt.Errorf("references must be a list")
+						return nil, fmt.Errorf("tags must be a list")
 					}
 					for it := val.ElementIterator(); it.Next(); {
 						_, v := it.Element()
 						if v.Type() != cty.String {
-							return nil, fmt.Errorf("reference must be a string")
+							return nil, fmt.Errorf("tag must be a string")
 						}
-						doc.References = append(doc.References, v.AsString())
+						doc.Tags = append(doc.Tags, v.AsString())
 					}
 				}
 			}

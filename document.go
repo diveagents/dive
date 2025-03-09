@@ -1,6 +1,9 @@
 package dive
 
-import "context"
+import (
+	"context"
+	"path/filepath"
+)
 
 var (
 	_ Document = &TextDocument{}
@@ -28,7 +31,7 @@ type Document interface {
 	ID() string
 	Name() string
 	Description() string
-	URI() string
+	Path() string
 	Version() int
 	Content() string
 	ContentType() string
@@ -68,7 +71,7 @@ type DocumentOptions struct {
 	ID          string   `json:"id,omitempty"`
 	Name        string   `json:"name,omitempty"`
 	Description string   `json:"description,omitempty"`
-	URI         string   `json:"uri,omitempty"`
+	Path        string   `json:"path,omitempty"`
 	Version     int      `json:"version,omitempty"`
 	Content     string   `json:"content,omitempty"`
 	ContentType string   `json:"content_type,omitempty"`
@@ -79,11 +82,24 @@ func NewTextDocument(opts DocumentOptions) *TextDocument {
 	if opts.ContentType == "" {
 		opts.ContentType = "text/plain"
 	}
+
+	// Validate name matches path basename if both are provided
+	if opts.Name != "" && opts.Path != "" {
+		basename := filepath.Base(opts.Path)
+		if basename != opts.Name {
+			// Auto-correct to match the path. Could panic instead...
+			opts.Name = basename
+		}
+	} else if opts.Path != "" {
+		// If only path is provided, derive name from it
+		opts.Name = filepath.Base(opts.Path)
+	}
+
 	return &TextDocument{
 		id:          opts.ID,
 		name:        opts.Name,
 		description: opts.Description,
-		uri:         opts.URI,
+		path:        opts.Path,
 		version:     opts.Version,
 		content:     opts.Content,
 		contentType: opts.ContentType,
@@ -95,7 +111,7 @@ type TextDocument struct {
 	id          string
 	name        string
 	description string
-	uri         string
+	path        string
 	version     int
 	content     string
 	contentType string
@@ -110,8 +126,8 @@ func (d *TextDocument) Name() string {
 	return d.name
 }
 
-func (d *TextDocument) URI() string {
-	return d.uri
+func (d *TextDocument) Path() string {
+	return d.path
 }
 
 func (d *TextDocument) Version() int {
@@ -138,8 +154,8 @@ func (d *TextDocument) SetName(name string) {
 	d.name = name
 }
 
-func (d *TextDocument) SetURI(uri string) {
-	d.uri = uri
+func (d *TextDocument) SetPath(path string) {
+	d.path = path
 }
 
 func (d *TextDocument) SetContent(content string) {

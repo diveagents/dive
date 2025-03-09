@@ -29,20 +29,16 @@ func NewFileSystemDocumentStore(rootDir string) (*FileSystemDocumentStore, error
 // GetDocument returns a document by name (which is treated as a path)
 func (s *FileSystemDocumentStore) GetDocument(ctx context.Context, name string) (Document, error) {
 	path := filepath.Join(s.rootDir, name)
-
-	// Check if file exists first
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("document %q does not exist", name)
 	}
-
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read document %q: %w", name, err)
 	}
-
 	return NewTextDocument(DocumentOptions{
 		Name:        filepath.Base(name),
-		URI:         name,
+		Path:        name,
 		Content:     string(content),
 		ContentType: detectContentType(name),
 	}), nil
@@ -57,18 +53,13 @@ func (s *FileSystemDocumentStore) ListDocuments(ctx context.Context, input *List
 		if err != nil {
 			return err
 		}
-
-		// Get relative path from root dir
 		relPath, err := filepath.Rel(s.rootDir, path)
 		if err != nil {
 			return err
 		}
-
-		// Skip if doesn't match path prefix
 		if input.PathPrefix != "" && !strings.HasPrefix(relPath, input.PathPrefix) {
 			return nil
 		}
-
 		// Skip directories unless this is the start dir
 		if info.IsDir() {
 			// If not recursive and this isn't the start dir, skip this directory
@@ -77,24 +68,20 @@ func (s *FileSystemDocumentStore) ListDocuments(ctx context.Context, input *List
 			}
 			return nil
 		}
-
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return nil // Skip files we can't read
 		}
-
 		doc := NewTextDocument(DocumentOptions{
 			Name:        filepath.Base(relPath),
-			URI:         relPath,
+			Path:        relPath,
 			Content:     string(content),
 			ContentType: detectContentType(relPath),
 		})
-
 		// Filter by tags if specified
 		if len(input.Tags) > 0 && !hasAllTags(doc.Tags(), input.Tags) {
 			return nil
 		}
-
 		docs = append(docs, doc)
 		return nil
 	}
@@ -103,39 +90,33 @@ func (s *FileSystemDocumentStore) ListDocuments(ctx context.Context, input *List
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to walk directory %q: %w", input.PathPrefix, err)
 	}
-
 	return &ListDocumentOutput{Items: docs}, nil
 }
 
 // PutDocument puts a document into the store
 func (s *FileSystemDocumentStore) PutDocument(ctx context.Context, doc Document) error {
-	if doc.URI() == "" {
-		return fmt.Errorf("document URI is required")
+	if doc.Path() == "" {
+		return fmt.Errorf("document path is required")
 	}
-
-	path := filepath.Join(s.rootDir, doc.URI())
+	path := filepath.Join(s.rootDir, doc.Path())
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for document: %w", err)
 	}
-
 	if err := os.WriteFile(path, []byte(doc.Content()), 0644); err != nil {
 		return fmt.Errorf("failed to write document to file: %w", err)
 	}
-
 	return nil
 }
 
 // DeleteDocument deletes a document from the store
 func (s *FileSystemDocumentStore) DeleteDocument(ctx context.Context, doc Document) error {
-	if doc.URI() == "" {
-		return fmt.Errorf("document URI is required")
+	if doc.Path() == "" {
+		return fmt.Errorf("document path is required")
 	}
-
-	path := filepath.Join(s.rootDir, doc.URI())
+	path := filepath.Join(s.rootDir, doc.Path())
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete document file: %w", err)
 	}
-
 	return nil
 }
 

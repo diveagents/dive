@@ -82,10 +82,9 @@ type Document struct {
 	Name        string   `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
 	Description string   `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
 	Path        string   `yaml:"path,omitempty" json:"path,omitempty" hcl:"path,optional"`
-	URI         string   `yaml:"uri,omitempty" json:"uri,omitempty" hcl:"uri,optional"`
 	Content     string   `yaml:"content,omitempty" json:"content,omitempty" hcl:"content,optional"`
 	ContentType string   `yaml:"content_type,omitempty" json:"content_type,omitempty" hcl:"content_type,optional"`
-	References  []string `yaml:"references,omitempty" json:"references,omitempty" hcl:"references,optional"`
+	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty" hcl:"tags,optional"`
 }
 
 // LoadFile loads a Team configuration from a file. The file extension is
@@ -288,57 +287,42 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 }
 
 func ResolveDocument(ctx context.Context, store dive.DocumentStore, ref Document) (dive.Document, error) {
-	// If content is provided directly, create an in-memory document
+	docPath := ref.Path
+	if docPath == "" && ref.Name != "" {
+		docPath = "./" + ref.Name
+	}
+	if docPath == "" {
+		return nil, fmt.Errorf("document %q must have either path or name", ref.Name)
+	}
+	// Create document options with resolved path
+	docOpts := dive.DocumentOptions{
+		ID:          ref.ID,
+		Name:        ref.Name,
+		Description: ref.Description,
+		Path:        docPath,
+		ContentType: ref.ContentType,
+		Tags:        ref.Tags,
+	}
+	// If content is provided, create/update the document with that content
 	if ref.Content != "" {
-		return dive.NewTextDocument(dive.DocumentOptions{
-			ID:          ref.ID,
-			Name:        ref.Name,
-			Description: ref.Description,
-			Content:     ref.Content,
-			ContentType: ref.ContentType,
-			Tags:        ref.References, // Use References as tags
-		}), nil
-	}
-
-	// If path is provided, create a document with that URI
-	if ref.Path != "" {
-		// If path is a glob pattern, it will be handled by the document store
-		// when listing documents
-		doc := dive.NewTextDocument(dive.DocumentOptions{
-			ID:          ref.ID,
-			Name:        ref.Name,
-			Description: ref.Description,
-			URI:         ref.Path,
-			ContentType: ref.ContentType,
-			Tags:        ref.References,
-		})
-
-		// Store the document so it can be retrieved later
+		docOpts.Content = ref.Content
+		doc := dive.NewTextDocument(docOpts)
+		// Store the document with its content
 		if err := store.PutDocument(ctx, doc); err != nil {
 			return nil, fmt.Errorf("failed to store document %q: %w", ref.Name, err)
 		}
-
 		return doc, nil
 	}
-
-	// If URI is provided, create a document with that URI
-	if ref.URI != "" {
-		doc := dive.NewTextDocument(dive.DocumentOptions{
-			ID:          ref.ID,
-			Name:        ref.Name,
-			Description: ref.Description,
-			URI:         ref.URI,
-			ContentType: ref.ContentType,
-			Tags:        ref.References,
-		})
-
-		// Store the document so it can be retrieved later
-		if err := store.PutDocument(ctx, doc); err != nil {
-			return nil, fmt.Errorf("failed to store document %q: %w", ref.Name, err)
-		}
-
-		return doc, nil
+	// Try to get existing document
+	existingDoc, err := store.GetDocument(ctx, docPath)
+	if err == nil {
+		// Document exists, return it
+		return existingDoc, nil
 	}
-
-	return nil, fmt.Errorf("document %q must have either content, path, or uri", ref.Name)
+	// Document doesn't exist, create an empty one
+	doc := dive.NewTextDocument(docOpts)
+	if err := store.PutDocument(ctx, doc); err != nil {
+		return nil, fmt.Errorf("failed to create empty document %q: %w", ref.Name, err)
+	}
+	return doc, nil
 }

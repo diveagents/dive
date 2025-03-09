@@ -25,7 +25,7 @@ func TestFileSystemDocumentStore(t *testing.T) {
 	t.Run("PutDocument", func(t *testing.T) {
 		doc := NewTextDocument(DocumentOptions{
 			Name:    "test.txt",
-			URI:     "docs/test.txt",
+			Path:    "docs/test.txt",
 			Content: "test content",
 		})
 
@@ -59,7 +59,7 @@ func TestFileSystemDocumentStore(t *testing.T) {
 		// Add test document that should already exist
 		doc := NewTextDocument(DocumentOptions{
 			Name:    "test.txt",
-			URI:     "docs/test.txt",
+			Path:    "docs/test.txt",
 			Content: "test content",
 		})
 		require.NoError(t, store.PutDocument(ctx, doc), "Failed to put initial test document")
@@ -77,7 +77,7 @@ func TestFileSystemDocumentStore(t *testing.T) {
 		for _, d := range docs {
 			doc := NewTextDocument(DocumentOptions{
 				Name:    filepath.Base(d.uri),
-				URI:     d.uri,
+				Path:    d.uri,
 				Content: d.content,
 			})
 			require.NoError(t, store.PutDocument(ctx, doc), "Failed to put test document")
@@ -117,7 +117,7 @@ func TestFileSystemDocumentStore(t *testing.T) {
 
 				found := false
 				for _, doc := range result.Items {
-					if doc.URI() == tt.wantContains || doc.Name() == tt.wantContains {
+					if doc.Path() == tt.wantContains || doc.Name() == tt.wantContains {
 						found = true
 						break
 					}
@@ -131,7 +131,7 @@ func TestFileSystemDocumentStore(t *testing.T) {
 	t.Run("DeleteDocument", func(t *testing.T) {
 		doc := NewTextDocument(DocumentOptions{
 			Name:    "delete-test.txt",
-			URI:     "docs/delete-test.txt",
+			Path:    "docs/delete-test.txt",
 			Content: "to be deleted",
 		})
 
