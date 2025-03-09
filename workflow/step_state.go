@@ -1,14 +1,15 @@
-package dive
+package workflow
 
 import (
 	"time"
 
 	"github.com/getstingrai/dive/llm"
+	"github.com/getstingrai/dive/stream"
 )
 
 type stepState struct {
 	Step               *Step
-	Publisher          *StreamPublisher
+	Publisher          *stream.Publisher
 	Status             StepStatus
 	Iterations         int
 	Started            time.Time

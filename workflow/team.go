@@ -8,8 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/slogger"
+	"github.com/getstingrai/dive/stream"
+	"github.com/getstingrai/dive/workflow"
 )
 
 var _ Team = &DiveTeam{}
@@ -119,7 +122,7 @@ func (t *DiveTeam) Name() string {
 }
 
 // DocumentStore returns the document store for the team.
-func (t *DiveTeam) DocumentStore() DocumentStore {
+func (t *DiveTeam) DocumentStore() document.DocumentStore {
 	return t.documents
 }
 
@@ -207,11 +210,11 @@ func (t *DiveTeam) Stop(ctx context.Context) error {
 // results to the caller as progress is made. This batch of work is considered
 // independent of any other work the team may be doing. If the team has not yet
 // started, it is automatically started.
-func (t *DiveTeam) Work(ctx context.Context, steps ...*Step) (Stream, error) {
+func (t *DiveTeam) Work(ctx context.Context, steps ...*workflow.Step) (*stream.Stream, error) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	var todo []*Step
+	var todo []*workflow.Step
 
 	// Automatically start as needed
 	if !t.running {
@@ -247,17 +250,17 @@ func (t *DiveTeam) Work(ctx context.Context, steps ...*Step) (Stream, error) {
 	}
 
 	// Sort steps into execution order
-	orderedNames, err := OrderSteps(todo)
+	orderedNames, err := workflow.OrderSteps(todo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine step execution order: %w", err)
 	}
-	var orderedSteps []*Step
+	var orderedSteps []*workflow.Step
 	for _, stepName := range orderedNames {
 		orderedSteps = append(orderedSteps, stepsByName[stepName])
 	}
 
 	// This stream will be used to deliver events and results to the caller
-	stream := NewDiveStream()
+	stream := stream.New()
 
 	// Run work and process events in a separate goroutine
 	go t.workOnSteps(ctx, orderedSteps, stream)
@@ -265,8 +268,8 @@ func (t *DiveTeam) Work(ctx context.Context, steps ...*Step) (Stream, error) {
 	return stream, nil
 }
 
-func (t *DiveTeam) workOnSteps(ctx context.Context, steps []*Step, stream *DiveStream) {
-	publisher := NewStreamPublisher(stream)
+func (t *DiveTeam) workOnSteps(ctx context.Context, steps []*workflow.Step, stream *stream.Stream) {
+	publisher := stream.NewPublisher()
 	defer publisher.Close()
 
 	backgroundCtx := context.Background()
@@ -327,7 +330,7 @@ func (t *DiveTeam) workOnSteps(ctx context.Context, steps []*Step, stream *DiveS
 			}
 			// Store the step results
 			if err := t.outputPlugin.WriteOutput(ctx, step.Name(), "", result.Content); err != nil {
-				publisher.Send(backgroundCtx, &StreamEvent{
+				publisher.Send(backgroundCtx, &stream.Event{
 					Type:      "work.error",
 					StepName:  step.Name(),
 					AgentName: agent.Name(),
@@ -434,7 +437,7 @@ func (t *DiveTeam) GetAgent(name string) (Agent, bool) {
 // Overview returns a string representation of the team, which can be included
 // in agent prompts to help them understand the team's capabilities.
 func (t *DiveTeam) Overview() (string, error) {
-	return executeTemplate(teamPromptTemplate, t)
+	return workflow.ExecuteTemplate(teamPromptTemplate, t)
 }
 
 // HandleEvent passes an event to any agents that accept it.

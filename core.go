@@ -3,7 +3,10 @@ package dive
 import (
 	"context"
 
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/llm"
+	"github.com/getstingrai/dive/stream"
+	"github.com/getstingrai/dive/workflow"
 )
 
 type Event struct {
@@ -34,7 +37,7 @@ type Team interface {
 
 	// Work on one or more steps. The returned stream can be read from
 	// asynchronously to receive events and step results.
-	Work(ctx context.Context, steps ...*Step) (Stream, error)
+	Work(ctx context.Context, steps ...*workflow.Step) (*stream.Stream, error)
 
 	// Start all agents belonging to the team
 	Start(ctx context.Context) error
@@ -46,7 +49,7 @@ type Team interface {
 	IsRunning() bool
 
 	// DocumentStore returns the document store for the team
-	DocumentStore() DocumentStore
+	DocumentStore() document.DocumentStore
 }
 
 type generateOptions struct {
@@ -86,7 +89,7 @@ type Agent interface {
 	Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error)
 
 	// Stream a response from the agent
-	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (Stream, error)
+	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*stream.Stream, error)
 }
 
 // TeamAgent is an Agent that can join a team and work on tasks
@@ -107,7 +110,7 @@ type TeamAgent interface {
 	Subordinates() []string
 
 	// Work gives the agent a task to complete and returns a stream of events
-	Work(ctx context.Context, step *Step) (Stream, error)
+	Work(ctx context.Context, step *workflow.Step) (*stream.Stream, error)
 }
 
 // RunnableAgent is an Agent that can be started and stopped
@@ -133,37 +136,4 @@ type EventHandlerAgent interface {
 
 	// HandleEvent passes an event to the event handler
 	HandleEvent(ctx context.Context, event *Event) error
-}
-
-// Stream provides access to a stream of events from a Team or Agent
-type Stream interface {
-	// Channel returns the channel to be used to receive events
-	Channel() <-chan *StreamEvent
-
-	// Close closes the stream
-	Close()
-}
-
-// StreamEvent is an event that carries LLM events, task results, or errors.
-type StreamEvent struct {
-	// Type of the event
-	Type string `json:"type"`
-
-	// AgentName is the name of the agent associated with the event
-	AgentName string `json:"agent_name"`
-
-	// StepName is the name of the step that generated the event (if applicable)
-	StepName string `json:"step_name,omitempty"`
-
-	// LLMEvent is the event from the LLM (may be nil)
-	LLMEvent *llm.StreamEvent `json:"llm_event,omitempty"`
-
-	// StepResult is the result of a step (may be nil)
-	StepResult *StepResult `json:"step_result,omitempty"`
-
-	// Response is the final response from the agent (may be nil)
-	Response *llm.Response `json:"response,omitempty"`
-
-	// Error conveys an error message
-	Error string `json:"error,omitempty"`
 }

@@ -1,13 +1,13 @@
-package dive
+package agent
 
 // agentTemplateData is the data used to render the agent prompt template.
 // It carries some information that isn't available via the Agent Go interface.
 type agentTemplateData struct {
-	*DiveAgent
+	*Agent
 	DelegateTargets []Agent
 }
 
-func newAgentTemplateData(agent *DiveAgent) *agentTemplateData {
+func newAgentTemplateData(agent *Agent) *agentTemplateData {
 	var delegateTargets []Agent
 	if agent.isSupervisor {
 		if agent.subordinates == nil {
@@ -29,7 +29,7 @@ func newAgentTemplateData(agent *DiveAgent) *agentTemplateData {
 		}
 	}
 	return &agentTemplateData{
-		DiveAgent:       agent,
+		Agent:           agent,
 		DelegateTargets: delegateTargets,
 	}
 }

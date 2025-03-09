@@ -1,4 +1,4 @@
-package dive
+package workflow
 
 import (
 	"fmt"
@@ -7,6 +7,9 @@ import (
 	"time"
 
 	petname "github.com/dustinkirkland/golang-petname"
+	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/document"
+	"github.com/getstingrai/dive/graph"
 )
 
 // StepOptions are used to create a Step
@@ -20,8 +23,8 @@ type StepOptions struct {
 	Timeout        time.Duration
 	Context        string
 	OutputObject   interface{}
-	AssignedAgent  Agent
-	DocumentRefs   []DocumentRef
+	AssignedAgent  dive.Agent
+	DocumentRefs   []document.DocumentRef
 }
 
 // Step represents one step in a workflow
@@ -31,9 +34,9 @@ type Step struct {
 	expectedOutput string
 	outputFormat   OutputFormat
 	outputObject   interface{}
-	assignedAgent  Agent
+	assignedAgent  dive.Agent
 	dependencies   []string
-	documentRefs   []DocumentRef
+	documentRefs   []document.DocumentRef
 	outputFile     string
 	result         *StepResult
 	timeout        time.Duration
@@ -65,24 +68,24 @@ func NewStep(opts StepOptions) *Step {
 	}
 }
 
-func (s *Step) Name() string                { return s.name }
-func (s *Step) Description() string         { return s.description }
-func (s *Step) ExpectedOutput() string      { return s.expectedOutput }
-func (s *Step) OutputFormat() OutputFormat  { return s.outputFormat }
-func (s *Step) OutputObject() interface{}   { return s.outputObject }
-func (s *Step) AssignedAgent() Agent        { return s.assignedAgent }
-func (s *Step) Dependencies() []string      { return s.dependencies }
-func (s *Step) DocumentRefs() []DocumentRef { return s.documentRefs }
-func (s *Step) OutputFile() string          { return s.outputFile }
-func (s *Step) Result() *StepResult         { return s.result }
-func (s *Step) Timeout() time.Duration      { return s.timeout }
-func (s *Step) Context() string             { return s.context }
-func (s *Step) DependenciesOutput() string  { return s.depOutput }
+func (s *Step) Name() string                         { return s.name }
+func (s *Step) Description() string                  { return s.description }
+func (s *Step) ExpectedOutput() string               { return s.expectedOutput }
+func (s *Step) OutputFormat() OutputFormat           { return s.outputFormat }
+func (s *Step) OutputObject() interface{}            { return s.outputObject }
+func (s *Step) AssignedAgent() dive.Agent            { return s.assignedAgent }
+func (s *Step) Dependencies() []string               { return s.dependencies }
+func (s *Step) DocumentRefs() []document.DocumentRef { return s.documentRefs }
+func (s *Step) OutputFile() string                   { return s.outputFile }
+func (s *Step) Result() *StepResult                  { return s.result }
+func (s *Step) Timeout() time.Duration               { return s.timeout }
+func (s *Step) Context() string                      { return s.context }
+func (s *Step) DependenciesOutput() string           { return s.depOutput }
 
 func (s *Step) SetContext(ctx string)               { s.context = ctx }
 func (s *Step) SetDependenciesOutput(output string) { s.depOutput = output }
 func (s *Step) SetResult(result *StepResult)        { s.result = result }
-func (s *Step) SetAssignedAgent(agent Agent)        { s.assignedAgent = agent }
+func (s *Step) SetAssignedAgent(agent dive.Agent)   { s.assignedAgent = agent }
 
 // Validate checks if the step is properly configured
 func (s *Step) Validate() error {
@@ -170,4 +173,17 @@ func isSimpleFilename(filename string) bool {
 
 func formatBlock(heading, blockType, content string) string {
 	return fmt.Sprintf("%s\n\n```%s\n%s\n```", heading, blockType, content)
+}
+
+// OrderSteps sorts steps into execution order using their dependencies.
+func OrderSteps(steps []*Step) ([]string, error) {
+	nodes := make([]graph.Node, len(steps))
+	for i, step := range steps {
+		nodes[i] = step
+	}
+	order, err := graph.New(nodes).TopologicalSort()
+	if err != nil {
+		return nil, fmt.Errorf("invalid step dependencies: %w", err)
+	}
+	return order, nil
 }

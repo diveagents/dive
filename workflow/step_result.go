@@ -1,4 +1,4 @@
-package dive
+package workflow
 
 import (
 	"time"

@@ -1,4 +1,4 @@
-package dive
+package document
 
 import (
 	"context"

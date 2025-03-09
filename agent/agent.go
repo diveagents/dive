@@ -1,4 +1,4 @@
-package dive
+package agent
 
 import (
 	"context"
@@ -10,9 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/memory"
 	"github.com/getstingrai/dive/slogger"
+	"github.com/getstingrai/dive/stream"
+	"github.com/getstingrai/dive/workflow"
 )
 
 var (
@@ -25,10 +28,10 @@ var (
 
 // Confirm our standard implementation satisfies the different Agent interfaces
 var (
-	_ Agent             = &DiveAgent{}
-	_ TeamAgent         = &DiveAgent{}
-	_ RunnableAgent     = &DiveAgent{}
-	_ EventHandlerAgent = &DiveAgent{}
+	_ Agent             = &Agent{}
+	_ TeamAgent         = &Agent{}
+	_ RunnableAgent     = &Agent{}
+	_ EventHandlerAgent = &Agent{}
 )
 
 // chatThread contains the message history for a specific chat thread ID
@@ -64,8 +67,8 @@ type AgentOptions struct {
 	DateAwareness      *bool
 }
 
-// DiveAgent is the standard implementation of the Agent interface.
-type DiveAgent struct {
+// Agent is the standard implementation of the Agent interface.
+type Agent struct {
 	name               string
 	description        string
 	instructions       string
@@ -106,7 +109,7 @@ type DiveAgent struct {
 }
 
 // NewAgent returns a new Agent configured with the given options.
-func NewAgent(opts AgentOptions) *DiveAgent {
+func NewAgent(opts AgentOptions) *Agent {
 	if opts.TickFrequency <= 0 {
 		opts.TickFrequency = DefaultTickFrequency
 	}
@@ -136,7 +139,7 @@ func NewAgent(opts AgentOptions) *DiveAgent {
 			opts.Name = randomName()
 		}
 	}
-	agent := &DiveAgent{
+	agent := &Agent{
 		name:               opts.Name,
 		llm:                opts.LLM,
 		description:        opts.Description,
@@ -184,33 +187,33 @@ func NewAgent(opts AgentOptions) *DiveAgent {
 	if len(tools) > 0 {
 		agent.toolsByName = make(map[string]llm.Tool, len(tools))
 		for _, tool := range tools {
-			agent.toolsByName[tool.Definition().Name] = tool
+			agent.toolsByName[tool.Defxinition().Name] = tool
 		}
 	}
 	return agent
 }
 
-func (a *DiveAgent) Name() string {
+func (a *Agent) Name() string {
 	return a.name
 }
 
-func (a *DiveAgent) Description() string {
+func (a *Agent) Description() string {
 	return a.description
 }
 
-func (a *DiveAgent) Instructions() string {
+func (a *Agent) Instructions() string {
 	return a.instructions
 }
 
-func (a *DiveAgent) AcceptedEvents() []string {
+func (a *Agent) AcceptedEvents() []string {
 	return a.acceptedEvents
 }
 
-func (a *DiveAgent) IsSupervisor() bool {
+func (a *Agent) IsSupervisor() bool {
 	return a.isSupervisor
 }
 
-func (a *DiveAgent) Subordinates() []string {
+func (a *Agent) Subordinates() []string {
 	if !a.isSupervisor || a.team == nil || len(a.team.Agents()) == 1 {
 		return nil
 	}
@@ -239,7 +242,7 @@ func (a *DiveAgent) Subordinates() []string {
 	return others
 }
 
-func (a *DiveAgent) Join(team Team) error {
+func (a *Agent) Join(team Team) error {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
@@ -253,11 +256,11 @@ func (a *DiveAgent) Join(team Team) error {
 	return nil
 }
 
-func (a *DiveAgent) Team() Team {
+func (a *Agent) Team() Team {
 	return a.team
 }
 
-func (a *DiveAgent) Start(ctx context.Context) error {
+func (a *Agent) Start(ctx context.Context) error {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
@@ -285,7 +288,7 @@ func (a *DiveAgent) Start(ctx context.Context) error {
 	return nil
 }
 
-func (a *DiveAgent) Stop(ctx context.Context) error {
+func (a *Agent) Stop(ctx context.Context) error {
 	a.mutex.Lock()
 	defer func() {
 		a.running = false
@@ -310,14 +313,14 @@ func (a *DiveAgent) Stop(ctx context.Context) error {
 	}
 }
 
-func (a *DiveAgent) IsRunning() bool {
+func (a *Agent) IsRunning() bool {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
 	return a.running
 }
 
-func (a *DiveAgent) Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error) {
+func (a *Agent) Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
@@ -356,7 +359,7 @@ func (a *DiveAgent) Generate(ctx context.Context, message *llm.Message, opts ...
 	}
 }
 
-func (a *DiveAgent) Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (Stream, error) {
+func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
@@ -386,7 +389,7 @@ func (a *DiveAgent) Stream(ctx context.Context, message *llm.Message, opts ...Ge
 	return stream, nil
 }
 
-func (a *DiveAgent) HandleEvent(ctx context.Context, event *Event) error {
+func (a *Agent) HandleEvent(ctx context.Context, event *Event) error {
 	if !a.IsRunning() {
 		return fmt.Errorf("agent is not running")
 	}
@@ -399,17 +402,17 @@ func (a *DiveAgent) HandleEvent(ctx context.Context, event *Event) error {
 	}
 }
 
-func (a *DiveAgent) Work(ctx context.Context, step *Step) (Stream, error) {
+func (a *Agent) Work(ctx context.Context, step *workflow.Step) (*stream.Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
 
 	// Stream to be returned to the caller so it can wait for results
-	stream := NewDiveStream()
+	stream := stream.New()
 
 	message := messageWork{
 		step:      step,
-		publisher: NewStreamPublisher(stream),
+		publisher: stream.NewPublisher(),
 	}
 
 	select {
@@ -423,7 +426,7 @@ func (a *DiveAgent) Work(ctx context.Context, step *Step) (Stream, error) {
 
 // This is the agent's main run loop. It dispatches incoming messages and runs
 // a ticker that wakes the agent up periodically even if there are no messages.
-func (a *DiveAgent) run() error {
+func (a *Agent) run() error {
 	defer a.wg.Done()
 
 	a.ticker = time.NewTicker(a.tickFrequency)
@@ -453,7 +456,7 @@ func (a *DiveAgent) run() error {
 	}
 }
 
-func (a *DiveAgent) handleWork(m messageWork) {
+func (a *Agent) handleWork(m messageWork) {
 	a.taskQueue = append(a.taskQueue, &stepState{
 		Step:      m.step,
 		Publisher: m.publisher,
@@ -461,7 +464,7 @@ func (a *DiveAgent) handleWork(m messageWork) {
 	})
 }
 
-func (a *DiveAgent) handleEvent(event *Event) {
+func (a *Agent) handleEvent(event *Event) {
 	a.logger.Info("event received",
 		"agent", a.name,
 		"event", event.Name)
@@ -469,7 +472,7 @@ func (a *DiveAgent) handleEvent(event *Event) {
 	// TODO: implement event triggered behaviors
 }
 
-func (a *DiveAgent) handleChat(m messageChat) {
+func (a *Agent) handleChat(m messageChat) {
 	ctx, cancel := context.WithTimeout(context.Background(), a.chatTimeout)
 	defer cancel()
 
@@ -480,10 +483,10 @@ func (a *DiveAgent) handleChat(m messageChat) {
 	}
 
 	var isStreaming bool
-	var publisher *StreamPublisher
+	var publisher *stream.Publisher
 	if m.stream != nil {
 		isStreaming = true
-		publisher = NewStreamPublisher(m.stream)
+		publisher = m.stream
 		defer publisher.Close()
 	}
 
@@ -539,7 +542,7 @@ func (a *DiveAgent) handleChat(m messageChat) {
 	m.resultChan <- response
 }
 
-func (a *DiveAgent) getSystemPromptForMode(mode string) (string, error) {
+func (a *Agent) getSystemPromptForMode(mode string) (string, error) {
 	var err error
 	var prompt string
 	data := newAgentTemplateData(a)
@@ -560,12 +563,12 @@ func (a *DiveAgent) getSystemPromptForMode(mode string) (string, error) {
 // generate runs the LLM generation and tool execution loop.
 // It handles the interaction between the agent and the LLM, including tool calls.
 // Returns the final LLM response and any error that occurred.
-func (a *DiveAgent) generate(
+func (a *Agent) generate(
 	ctx context.Context,
 	messages []*llm.Message,
 	systemPrompt string,
 	stepName string,
-	publisher *StreamPublisher,
+	publisher *stream.Publisher,
 ) (*llm.Response, []*llm.Message, error) {
 
 	// Holds the most recent response from the LLM
@@ -574,7 +577,7 @@ func (a *DiveAgent) generate(
 	copy(updatedMessages, messages)
 
 	// Helper function to safely send events to the publisher
-	safePublish := func(event *StreamEvent) error {
+	safePublish := func(event *stream.Event) error {
 		if publisher == nil {
 			return nil
 		}
@@ -638,7 +641,7 @@ func (a *DiveAgent) generate(
 				if event.Response != nil {
 					currentResponse = event.Response
 				}
-				err = safePublish(&StreamEvent{
+				err = safePublish(&stream.Event{
 					Type:      "llm.event",
 					StepName:  stepName,
 					AgentName: a.name,
@@ -737,11 +740,11 @@ func (a *DiveAgent) generate(
 	return response, updatedMessages, nil
 }
 
-func (a *DiveAgent) documentStore() DocumentStore {
+func (a *Agent) documentStore() document.DocumentStore {
 	return a.team.DocumentStore()
 }
 
-func (a *DiveAgent) getStepDocumentsMessage(ctx context.Context, step *Step) (*llm.Message, error) {
+func (a *Agent) getStepDocumentsMessage(ctx context.Context, step *Step) (*llm.Message, error) {
 	documents, err := a.loadStepDocuments(ctx, step)
 	if err != nil {
 		return nil, err
@@ -759,14 +762,14 @@ func (a *DiveAgent) getStepDocumentsMessage(ctx context.Context, step *Step) (*l
 }
 
 // loadStepDocuments loads the content of documents referenced by a step
-func (a *DiveAgent) loadStepDocuments(ctx context.Context, step *Step) ([]Document, error) {
+func (a *Agent) loadStepDocuments(ctx context.Context, step *workflow.Step) ([]document.Document, error) {
 	if len(step.DocumentRefs()) == 0 {
 		return nil, nil
 	}
-	var documents []Document
+	var documents []document.Document
 	for _, ref := range step.DocumentRefs() {
 		var err error
-		var doc Document
+		var doc document.Document
 		if ref.Name != "" {
 			doc, err = a.documentStore().GetDocument(ctx, ref.Name)
 			if err != nil {
@@ -779,7 +782,7 @@ func (a *DiveAgent) loadStepDocuments(ctx context.Context, step *Step) ([]Docume
 			}
 			// Convert glob to path prefix by removing the trailing "/*"
 			pathPrefix := ref.Glob[:len(ref.Glob)-2]
-			docs, err := a.documentStore().ListDocuments(ctx, &ListDocumentInput{
+			docs, err := a.documentStore().ListDocuments(ctx, &document.ListDocumentInput{
 				PathPrefix: pathPrefix,
 			})
 			if err != nil {
@@ -797,7 +800,7 @@ func (a *DiveAgent) loadStepDocuments(ctx context.Context, step *Step) ([]Docume
 	return documents, nil
 }
 
-func (a *DiveAgent) handleStep(ctx context.Context, state *stepState) error {
+func (a *Agent) handleStep(ctx context.Context, state *stepState) error {
 	step := state.Step
 
 	timeout := step.Timeout()
@@ -875,7 +878,7 @@ func (a *DiveAgent) handleStep(ctx context.Context, state *stepState) error {
 	return nil
 }
 
-func (a *DiveAgent) doSomeWork() {
+func (a *Agent) doSomeWork() {
 
 	// Helper function to safely send events to the active task's publisher
 	safePublish := func(event *StreamEvent) error {
@@ -1019,7 +1022,7 @@ func (a *DiveAgent) doSomeWork() {
 
 // Remember the last 10 tasks that were worked on, so that the agent can use
 // them as context for future tasks.
-func (a *DiveAgent) rememberStep(step *stepState) {
+func (a *Agent) rememberStep(step *stepState) {
 	a.recentSteps = append(a.recentSteps, step)
 	if len(a.recentSteps) > 10 {
 		a.recentSteps = a.recentSteps[1:]
@@ -1028,7 +1031,7 @@ func (a *DiveAgent) rememberStep(step *stepState) {
 
 // Returns a block of text that summarizes the most recent tasks worked on by
 // the agent. The text is truncated if needed to avoid using a lot of tokens.
-func (a *DiveAgent) getStepsHistory() string {
+func (a *Agent) getStepsHistory() string {
 	if len(a.recentSteps) == 0 {
 		return ""
 	}
@@ -1053,7 +1056,7 @@ func (a *DiveAgent) getStepsHistory() string {
 
 // Returns a user message that contains a summary of the most recent tasks
 // worked on by the agent.
-func (a *DiveAgent) getStepsHistoryMessage() (*llm.Message, bool) {
+func (a *Agent) getStepsHistoryMessage() (*llm.Message, bool) {
 	history := a.getStepsHistory()
 	if history == "" {
 		return nil, false
@@ -1062,7 +1065,7 @@ func (a *DiveAgent) getStepsHistoryMessage() (*llm.Message, bool) {
 	return llm.NewUserMessage(text), true
 }
 
-func (a *DiveAgent) Fingerprint() string {
+func (a *Agent) Fingerprint() string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("agent: %s\n", a.name))
 	sb.WriteString(fmt.Sprintf("description: %s\n", a.description))

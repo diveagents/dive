@@ -1,4 +1,4 @@
-package dive
+package agent
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type AssignWorkToolInput struct {
 // AssignWorkToolOptions is used to configure a new AssignWorkTool.
 type AssignWorkToolOptions struct {
 	// Self indicates which agent owns this tool
-	Self TeamAgent
+	Self *Agent
 
 	// DefaultStepTimeout is the default timeout for steps assigned using this tool
 	DefaultStepTimeout time.Duration
@@ -35,7 +35,7 @@ type AssignWorkToolOptions struct {
 // The tool call blocks until the work is complete. The result of the call is
 // the output of the task.
 type AssignWorkTool struct {
-	self               TeamAgent
+	self               *Agent
 	defaultStepTimeout time.Duration
 }
 

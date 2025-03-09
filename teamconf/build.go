@@ -5,11 +5,14 @@ import (
 	"time"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/agent"
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/providers/groq"
 	"github.com/getstingrai/dive/providers/openai"
 	"github.com/getstingrai/dive/slogger"
+	"github.com/getstingrai/dive/workflow"
 )
 
 func buildAgent(
@@ -91,7 +94,7 @@ func buildAgent(
 		cacheControl = globalConfig.CacheControl
 	}
 
-	agent := dive.NewAgent(dive.AgentOptions{
+	agent := agent.NewAgent(agent.AgentOptions{
 		Name:               agentDef.Name,
 		Description:        agentDef.Description,
 		Instructions:       agentDef.Instructions,
@@ -114,7 +117,7 @@ func buildStep(
 	stepDef Step,
 	agents []dive.Agent,
 	variables map[string]interface{},
-) (*dive.Step, error) {
+) (*workflow.Step, error) {
 	var timeout time.Duration
 	if stepDef.Timeout != "" {
 		var err error
@@ -139,19 +142,19 @@ func buildStep(
 	}
 
 	// Convert document names to document refs
-	var documentRefs []dive.DocumentRef
+	var documentRefs []document.DocumentRef
 	for _, docName := range stepDef.Documents {
-		documentRefs = append(documentRefs, dive.DocumentRef{
+		documentRefs = append(documentRefs, document.DocumentRef{
 			Name: docName,
 		})
 	}
 
-	return dive.NewStep(dive.StepOptions{
+	return workflow.NewStep(workflow.StepOptions{
 		Name:           stepDef.Name,
 		Description:    stepDef.Description,
 		ExpectedOutput: stepDef.ExpectedOutput,
 		Dependencies:   stepDef.Dependencies,
-		OutputFormat:   dive.OutputFormat(stepDef.OutputFormat),
+		OutputFormat:   workflow.OutputFormat(stepDef.OutputFormat),
 		AssignedAgent:  assignedAgent,
 		OutputFile:     stepDef.OutputFile,
 		Timeout:        timeout,

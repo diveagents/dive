@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/slogger"
+	"github.com/getstingrai/dive/workflow"
 	"gopkg.in/yaml.v3"
 )
 
@@ -187,7 +189,7 @@ func TeamFromFile(filePath string, opts ...BuildOption) (dive.Team, error) {
 type buildOptions struct {
 	Variables     map[string]interface{}
 	Logger        slogger.Logger
-	DocumentStore dive.DocumentStore
+	DocumentStore document.DocumentStore
 }
 
 type BuildOption func(*buildOptions)
@@ -204,7 +206,7 @@ func WithLogger(logger slogger.Logger) BuildOption {
 	}
 }
 
-func WithDocumentStore(store dive.DocumentStore) BuildOption {
+func WithDocumentStore(store document.DocumentStore) BuildOption {
 	return func(o *buildOptions) {
 		o.DocumentStore = store
 	}
@@ -252,7 +254,7 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 		agents = append(agents, agent)
 	}
 
-	steps := make([]*dive.Step, 0, len(def.Steps))
+	steps := make([]*workflow.Step, 0, len(def.Steps))
 	for _, stepDef := range def.Steps {
 		step, err := buildStep(stepDef, agents, buildOpts.Variables)
 		if err != nil {
@@ -265,7 +267,7 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 		return nil, fmt.Errorf("document store is required when documents are defined")
 	}
 
-	documents := make(map[string]dive.Document, len(def.Documents))
+	documents := make(map[string]document.Document, len(def.Documents))
 	for _, docRef := range def.Documents {
 		doc, err := ResolveDocument(context.Background(), buildOpts.DocumentStore, docRef)
 		if err != nil {
@@ -286,7 +288,7 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 	})
 }
 
-func ResolveDocument(ctx context.Context, store dive.DocumentStore, ref Document) (dive.Document, error) {
+func ResolveDocument(ctx context.Context, store document.DocumentStore, ref Document) (document.Document, error) {
 	docPath := ref.Path
 	if docPath == "" && ref.Name != "" {
 		docPath = "./" + ref.Name
@@ -294,8 +296,9 @@ func ResolveDocument(ctx context.Context, store dive.DocumentStore, ref Document
 	if docPath == "" {
 		return nil, fmt.Errorf("document %q must have either path or name", ref.Name)
 	}
+
 	// Create document options with resolved path
-	docOpts := dive.DocumentOptions{
+	docOpts := document.DocumentOptions{
 		ID:          ref.ID,
 		Name:        ref.Name,
 		Description: ref.Description,
@@ -303,24 +306,27 @@ func ResolveDocument(ctx context.Context, store dive.DocumentStore, ref Document
 		ContentType: ref.ContentType,
 		Tags:        ref.Tags,
 	}
+
 	// If content is provided, create/update the document with that content
 	if ref.Content != "" {
 		docOpts.Content = ref.Content
-		doc := dive.NewTextDocument(docOpts)
+		doc := document.NewTextDocument(docOpts)
 		// Store the document with its content
 		if err := store.PutDocument(ctx, doc); err != nil {
 			return nil, fmt.Errorf("failed to store document %q: %w", ref.Name, err)
 		}
 		return doc, nil
 	}
+
 	// Try to get existing document
 	existingDoc, err := store.GetDocument(ctx, docPath)
 	if err == nil {
 		// Document exists, return it
 		return existingDoc, nil
 	}
+
 	// Document doesn't exist, create an empty one
-	doc := dive.NewTextDocument(docOpts)
+	doc := document.NewTextDocument(docOpts)
 	if err := store.PutDocument(ctx, doc); err != nil {
 		return nil, fmt.Errorf("failed to create empty document %q: %w", ref.Name, err)
 	}

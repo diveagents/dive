@@ -1,15 +1,17 @@
-package dive
+package agent
 
 import (
 	"context"
 
 	"github.com/getstingrai/dive/llm"
+	"github.com/getstingrai/dive/stream"
+	"github.com/getstingrai/dive/workflow"
 )
 
 // messageWork represents a task assignment message sent to an agent
 type messageWork struct {
-	step      *Step
-	publisher *StreamPublisher
+	step      *workflow.Step
+	publisher *stream.Publisher
 }
 
 // messageChat represents a direct chat message sent to an agent
@@ -24,7 +26,7 @@ type messageChat struct {
 	errChan    chan error
 
 	// For streaming responses:
-	stream *DiveStream
+	stream *stream.Stream
 }
 
 // messageStop represents a request to stop the agent
