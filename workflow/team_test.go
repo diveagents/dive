@@ -1,25 +1,27 @@
-package dive
+package workflow
 
 import (
 	"context"
 	"testing"
 
+	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/agent"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewTeam(t *testing.T) {
-	agent1 := NewAgent(AgentOptions{
+	agent1 := agent.NewAgent(agent.AgentOptions{
 		Description:  "AI researcher",
 		IsSupervisor: true,
 	})
-	agent2 := NewAgent(AgentOptions{
+	agent2 := agent.NewAgent(agent.AgentOptions{
 		Name:        "Chris",
 		Description: "Content writer",
 	})
 	team, err := NewTeam(TeamOptions{
 		Name:        "Research Team",
 		Description: "Researching the history of Go",
-		Agents:      []Agent{agent1, agent2},
+		Agents:      []dive.Agent{agent1, agent2},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, team)
@@ -52,11 +54,11 @@ func TestEmptyTeam(t *testing.T) {
 
 func TestTeamWithoutSupervisors(t *testing.T) {
 	team, err := NewTeam(TeamOptions{
-		Agents: []Agent{
-			NewAgent(AgentOptions{
+		Agents: []dive.Agent{
+			agent.NewAgent(agent.AgentOptions{
 				Description: "Content writer",
 			}),
-			NewAgent(AgentOptions{
+			agent.NewAgent(agent.AgentOptions{
 				Description: "Content writer",
 			}),
 		},
@@ -70,8 +72,8 @@ func TestTeamStartStop(t *testing.T) {
 	ctx := context.Background()
 
 	team, err := NewTeam(TeamOptions{
-		Agents: []Agent{
-			NewAgent(AgentOptions{Description: "Content writer"}),
+		Agents: []dive.Agent{
+			agent.NewAgent(agent.AgentOptions{Description: "Content writer"}),
 		},
 	})
 	require.NoError(t, err)

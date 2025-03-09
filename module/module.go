@@ -5,7 +5,7 @@ import "github.com/getstingrai/dive/workflow"
 type Module struct {
 	Name        string
 	Description string
-	Steps       []*workflow.Step
+	Tasks       []*workflow.Task
 }
 
 func NewModule(name string, description string) *Module {

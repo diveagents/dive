@@ -2,6 +2,8 @@ package workflow
 
 import (
 	"strings"
+
+	"github.com/getstingrai/dive"
 )
 
 type StructuredResponse struct {
@@ -10,10 +12,10 @@ type StructuredResponse struct {
 	StatusDescription string
 }
 
-func (sr StructuredResponse) Status() StepStatus {
+func (sr StructuredResponse) Status() dive.TaskStatus {
 	fields := strings.Fields(sr.StatusDescription)
 	if len(fields) == 0 {
-		return StepStatusInvalid
+		return dive.TaskStatusInvalid
 	}
 	// Find the first matching status
 	for _, field := range fields {
@@ -21,18 +23,18 @@ func (sr StructuredResponse) Status() StepStatus {
 		value = strings.TrimSuffix(value, "\"")
 		switch value {
 		case "active":
-			return StepStatusActive
+			return dive.TaskStatusActive
 		case "paused":
-			return StepStatusPaused
+			return dive.TaskStatusPaused
 		case "completed":
-			return StepStatusCompleted
+			return dive.TaskStatusCompleted
 		case "blocked":
-			return StepStatusBlocked
+			return dive.TaskStatusBlocked
 		case "error":
-			return StepStatusError
+			return dive.TaskStatusError
 		}
 	}
-	return StepStatusInvalid
+	return dive.TaskStatusInvalid
 }
 
 func ParseStructuredResponse(text string) StructuredResponse {

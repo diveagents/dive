@@ -6,17 +6,30 @@ import (
 	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/stream"
-	"github.com/getstingrai/dive/workflow"
 )
 
-type Event struct {
-	Name        string
-	Description string
-	Parameters  map[string]any
-}
+// OutputFormat defines the format of task results
+type OutputFormat string
 
-// Team is a collection of agents that work together to complete tasks
-type Team interface {
+const (
+	OutputText     OutputFormat = "text"
+	OutputMarkdown OutputFormat = "markdown"
+	OutputJSON     OutputFormat = "json"
+)
+
+type TaskStatus string
+
+const (
+	TaskStatusQueued    TaskStatus = "queued"
+	TaskStatusActive    TaskStatus = "active"
+	TaskStatusPaused    TaskStatus = "paused"
+	TaskStatusCompleted TaskStatus = "completed"
+	TaskStatusBlocked   TaskStatus = "blocked"
+	TaskStatusError     TaskStatus = "error"
+	TaskStatusInvalid   TaskStatus = "invalid"
+)
+
+type Workflow interface {
 	// Name of the team
 	Name() string
 
@@ -33,11 +46,11 @@ type Team interface {
 	GetAgent(name string) (Agent, bool)
 
 	// HandleEvent passes an event to the team
-	HandleEvent(ctx context.Context, event *Event) error
+	HandleEvent(ctx context.Context, event *stream.Event) error
 
-	// Work on one or more steps. The returned stream can be read from
-	// asynchronously to receive events and step results.
-	Work(ctx context.Context, steps ...*workflow.Step) (*stream.Stream, error)
+	// Work on one or more tasks. The returned stream can be read from
+	// asynchronously to receive events and task results.
+	Work(ctx context.Context, tasks ...Task) (*stream.Stream, error)
 
 	// Start all agents belonging to the team
 	Start(ctx context.Context) error
@@ -49,7 +62,7 @@ type Team interface {
 	IsRunning() bool
 
 	// DocumentStore returns the document store for the team
-	DocumentStore() document.DocumentStore
+	DocumentStore() document.Repository
 }
 
 type generateOptions struct {
@@ -97,11 +110,11 @@ type TeamAgent interface {
 	Agent
 
 	// Team the agent belongs to
-	Team() Team
+	Team() Workflow
 
 	// Join a team. This is only valid if the agent is not yet running and is
 	// not yet a member of any team.
-	Join(team Team) error
+	Join(team Workflow) error
 
 	// IsSupervisor returns true if the agent is a supervisor
 	IsSupervisor() bool
@@ -110,7 +123,7 @@ type TeamAgent interface {
 	Subordinates() []string
 
 	// Work gives the agent a task to complete and returns a stream of events
-	Work(ctx context.Context, step *workflow.Step) (*stream.Stream, error)
+	Work(ctx context.Context, task Task) (*stream.Stream, error)
 }
 
 // RunnableAgent is an Agent that can be started and stopped
@@ -136,4 +149,25 @@ type EventHandlerAgent interface {
 
 	// HandleEvent passes an event to the event handler
 	HandleEvent(ctx context.Context, event *Event) error
+}
+
+// Task represents a unit of work that can be executed by an agent
+type Task interface {
+	// Name returns the name of the task
+	Name() string
+
+	// Description returns the description of the task
+	Description() string
+
+	// ExpectedOutput returns what output is expected from this task
+	ExpectedOutput() string
+
+	// Dependencies returns the names of tasks that must be completed before this one
+	Dependencies() []string
+
+	// AssignedAgent returns the agent assigned to this task, if any
+	AssignedAgent() Agent
+
+	// Validate checks if the task is properly configured
+	Validate() error
 }

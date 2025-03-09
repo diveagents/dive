@@ -15,9 +15,56 @@ import (
 	"github.com/getstingrai/dive/workflow"
 )
 
+type BuildOptions struct {
+	Variables  map[string]interface{}
+	Tools      map[string]llm.Tool
+	Logger     slogger.Logger
+	LogLevel   string
+	OutputDir  string
+	Repository document.Repository
+}
+
+type BuildOption func(*BuildOptions)
+
+func WithVariables(vars map[string]interface{}) BuildOption {
+	return func(opts *BuildOptions) {
+		opts.Variables = vars
+	}
+}
+
+func WithTools(tools map[string]llm.Tool) BuildOption {
+	return func(opts *BuildOptions) {
+		opts.Tools = tools
+	}
+}
+
+func WithLogger(logger slogger.Logger) BuildOption {
+	return func(opts *BuildOptions) {
+		opts.Logger = logger
+	}
+}
+
+func WithLogLevel(level string) BuildOption {
+	return func(opts *BuildOptions) {
+		opts.LogLevel = level
+	}
+}
+
+func WithOutputDir(dir string) BuildOption {
+	return func(opts *BuildOptions) {
+		opts.OutputDir = dir
+	}
+}
+
+func WithRepository(repo document.Repository) BuildOption {
+	return func(opts *BuildOptions) {
+		opts.Repository = repo
+	}
+}
+
 func buildAgent(
-	agentDef Agent,
-	globalConfig Config,
+	agentDef agent.Agent,
+	globalConfig agent.Config,
 	toolsMap map[string]llm.Tool,
 	logger slogger.Logger,
 	variables map[string]interface{},
@@ -72,12 +119,12 @@ func buildAgent(
 		agentTools = append(agentTools, tool)
 	}
 
-	var stepTimeout, chatTimeout time.Duration
-	if agentDef.StepTimeout != "" {
+	var taskTimeout, chatTimeout time.Duration
+	if agentDef.TaskTimeout != "" {
 		var err error
-		stepTimeout, err = time.ParseDuration(agentDef.StepTimeout)
+		taskTimeout, err = time.ParseDuration(agentDef.TaskTimeout)
 		if err != nil {
-			return nil, fmt.Errorf("invalid step timeout: %w", err)
+			return nil, fmt.Errorf("invalid task timeout: %w", err)
 		}
 	}
 
@@ -103,7 +150,7 @@ func buildAgent(
 		AcceptedEvents:     agentDef.AcceptedEvents,
 		LLM:                llmProvider,
 		Tools:              agentTools,
-		StepTimeout:        stepTimeout,
+		TaskTimeout:        taskTimeout,
 		ChatTimeout:        chatTimeout,
 		CacheControl:       cacheControl,
 		LogLevel:           globalConfig.LogLevel,
@@ -113,15 +160,15 @@ func buildAgent(
 	return agent, nil
 }
 
-func buildStep(
-	stepDef Step,
+func buildTask(
+	taskDef workflow.Task,
 	agents []dive.Agent,
 	variables map[string]interface{},
-) (*workflow.Step, error) {
+) (*workflow.Task, error) {
 	var timeout time.Duration
 	if stepDef.Timeout != "" {
 		var err error
-		timeout, err = time.ParseDuration(stepDef.Timeout)
+		timeout, err = time.ParseDuration(taskDef.Timeout)
 		if err != nil {
 			return nil, fmt.Errorf("invalid timeout: %w", err)
 		}
