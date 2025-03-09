@@ -97,14 +97,14 @@ func main() {
 
 	for event := range stream.Channel() {
 		switch event.Type {
-		case "task.result":
-			resultText := "\n" + boldStyle.Sprint(event.TaskName+":") + "\n" +
-				successStyle.Sprint(event.TaskResult.Content) + "\n"
+		case "step.result":
+			resultText := "\n" + boldStyle.Sprint(event.StepName+":") + "\n" +
+				successStyle.Sprint(event.StepResult.Content) + "\n"
 			fmt.Println(resultText)
-			saveOutput(event.TaskName, event.TaskResult.Content)
+			saveOutput(event.StepName, event.StepResult.Content)
 
-		case "task.error":
-			fmt.Println(boldStyle.Sprint(event.TaskName+":") + "\n")
+		case "step.error":
+			fmt.Println(boldStyle.Sprint(event.StepName+":") + "\n")
 			fmt.Println(errorStyle.Sprint(event.Error) + "\n")
 			fatal(event.Error)
 		}

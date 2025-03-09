@@ -39,28 +39,28 @@ func main() {
 	}
 	defer agent.Stop(ctx)
 
-	task := dive.NewTask(dive.TaskOptions{
+	step := dive.NewStep(dive.StepOptions{
 		Description: "Research the history of computing and summarize in 3 paragraphs",
 	})
 
-	stream, err := agent.Work(ctx, task)
+	stream, err := agent.Work(ctx, step)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var result *dive.TaskResult
+	var result *dive.StepResult
 	for event := range stream.Channel() {
 		if event.Error != "" {
 			log.Fatal(event.Error)
 		}
-		if event.TaskResult != nil {
-			result = event.TaskResult
+		if event.StepResult != nil {
+			result = event.StepResult
 			break
 		}
 	}
 
 	if result != nil {
-		log.Printf("Task result: %s", result.Content)
+		log.Printf("Step result: %s", result.Content)
 	} else {
 		log.Fatal("No result found")
 	}

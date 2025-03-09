@@ -147,33 +147,33 @@ func main() {
 	}
 	defer team.Stop(ctx)
 
-	researchTask := dive.NewTask(dive.TaskOptions{
+	researchStep := dive.NewStep(dive.StepOptions{
 		Name:        "Background Research",
 		Description: "Gather background research that will be used to create a history of maple syrup production in Vermont. Don't consult more than 3 sources. The goal is to produce about 3 paragraphs of research - that is all. Don't overdo it.",
 	})
 
-	writingTask := dive.NewTask(dive.TaskOptions{
+	writingStep := dive.NewStep(dive.StepOptions{
 		Name:           "Write History",
 		Description:    "Create a brief 3 paragraph history of maple syrup production in Vermont.",
 		ExpectedOutput: "The history, with the first word of each paragraph in ALL UPPERCASE",
-		Dependencies:   []string{researchTask.Name()},
+		Dependencies:   []string{researchStep.Name()},
 	})
 
-	stream, err := team.Work(ctx, researchTask, writingTask)
+	stream, err := team.Work(ctx, researchStep, writingStep)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	results := []*dive.TaskResult{}
+	results := []*dive.StepResult{}
 	for event := range stream.Channel() {
 		if event.Error != "" {
 			log.Fatal(event.Error)
 		}
-		if event.TaskResult != nil {
-			fmt.Printf("---- task result %s ----\n", event.TaskResult.Task.Name())
-			fmt.Println(event.TaskResult.Content)
+		if event.StepResult != nil {
+			fmt.Printf("---- step result %s ----\n", event.StepResult.Step.Name())
+			fmt.Println(event.StepResult.Content)
 			fmt.Println()
-			results = append(results, event.TaskResult)
+			results = append(results, event.StepResult)
 		} else {
 			fmt.Println("event:", event.Type)
 		}
@@ -184,7 +184,7 @@ func main() {
 	}
 
 	for _, result := range results {
-		filename := fmt.Sprintf("output/%s.txt", result.Task.Name())
+		filename := fmt.Sprintf("output/%s.txt", result.Step.Name())
 		if err := os.WriteFile(filename, []byte(result.Content), 0644); err != nil {
 			log.Fatal(err)
 		}

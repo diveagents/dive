@@ -43,10 +43,10 @@ func runTeam(filePath string, logLevel string) error {
 
 	for event := range stream.Channel() {
 		switch event.Type {
-		case "task.result":
-			resultText := "\n" + boldStyle.Sprint(event.TaskName+":") + "\n" + event.TaskResult.Content
+		case "step.result":
+			resultText := "\n" + boldStyle.Sprint(event.StepName+":") + "\n" + event.StepResult.Content
 			fmt.Println(resultText)
-		case "task.error":
+		case "step.error":
 			fmt.Printf("Error: %s\n", event.Error)
 		}
 	}

@@ -93,13 +93,13 @@ func main() {
 	}
 	defer a.Stop(ctx)
 
-	task := dive.NewTask(dive.TaskOptions{
+	step := dive.NewStep(dive.StepOptions{
 		Description:    "Research the history of the internet",
 		ExpectedOutput: "A report of the key events and milestones in the history of the internet",
 		OutputFormat:   dive.OutputMarkdown,
 	})
 
-	stream, err := a.Work(ctx, task)
+	stream, err := a.Work(ctx, step)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -108,8 +108,8 @@ func main() {
 		if event.Error != "" {
 			log.Fatal(event.Error)
 		}
-		if event.TaskResult != nil {
-			fmt.Println(event.TaskResult.Content)
+		if event.StepResult != nil {
+			fmt.Println(event.StepResult.Content)
 		}
 	}
 }
