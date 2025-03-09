@@ -32,9 +32,9 @@ type Team interface {
 	// HandleEvent passes an event to the team
 	HandleEvent(ctx context.Context, event *Event) error
 
-	// Work on one or more tasks. The returned stream can be read from
-	// asynchronously to receive events and task results.
-	Work(ctx context.Context, tasks ...*Task) (Stream, error)
+	// Work on one or more steps. The returned stream can be read from
+	// asynchronously to receive events and step results.
+	Work(ctx context.Context, steps ...*Step) (Stream, error)
 
 	// Start all agents belonging to the team
 	Start(ctx context.Context) error
@@ -107,7 +107,7 @@ type TeamAgent interface {
 	Subordinates() []string
 
 	// Work gives the agent a task to complete and returns a stream of events
-	Work(ctx context.Context, task *Task) (Stream, error)
+	Work(ctx context.Context, step *Step) (Stream, error)
 }
 
 // RunnableAgent is an Agent that can be started and stopped
@@ -152,14 +152,14 @@ type StreamEvent struct {
 	// AgentName is the name of the agent associated with the event
 	AgentName string `json:"agent_name"`
 
-	// TaskName is the name of the task that generated the event (if applicable)
-	TaskName string `json:"task_name,omitempty"`
+	// StepName is the name of the step that generated the event (if applicable)
+	StepName string `json:"step_name,omitempty"`
 
 	// LLMEvent is the event from the LLM (may be nil)
 	LLMEvent *llm.StreamEvent `json:"llm_event,omitempty"`
 
-	// TaskResult is the result of a task (may be nil)
-	TaskResult *TaskResult `json:"task_result,omitempty"`
+	// StepResult is the result of a step (may be nil)
+	StepResult *StepResult `json:"step_result,omitempty"`
 
 	// Response is the final response from the agent (may be nil)
 	Response *llm.Response `json:"response,omitempty"`

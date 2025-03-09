@@ -6,7 +6,7 @@ import (
 	"github.com/getstingrai/dive/llm"
 )
 
-// OutputFormat defines the format of task results
+// OutputFormat defines the format of step results
 type OutputFormat string
 
 const (
@@ -15,22 +15,22 @@ const (
 	OutputJSON     OutputFormat = "json"
 )
 
-type TaskStatus string
+type StepStatus string
 
 const (
-	TaskStatusQueued    TaskStatus = "queued"
-	TaskStatusActive    TaskStatus = "active"
-	TaskStatusPaused    TaskStatus = "paused"
-	TaskStatusCompleted TaskStatus = "completed"
-	TaskStatusBlocked   TaskStatus = "blocked"
-	TaskStatusError     TaskStatus = "error"
-	TaskStatusInvalid   TaskStatus = "invalid"
+	StepStatusQueued    StepStatus = "queued"
+	StepStatusActive    StepStatus = "active"
+	StepStatusPaused    StepStatus = "paused"
+	StepStatusCompleted StepStatus = "completed"
+	StepStatusBlocked   StepStatus = "blocked"
+	StepStatusError     StepStatus = "error"
+	StepStatusInvalid   StepStatus = "invalid"
 )
 
-// TaskResult holds the output of a completed task
-type TaskResult struct {
-	// Task is the task that was executed
-	Task *Task
+// StepResult holds the output of a completed step
+type StepResult struct {
+	// Step is the step that was executed
+	Step *Step
 
 	// Raw content of the output
 	Content string
@@ -57,9 +57,9 @@ type TaskResult struct {
 	Usage llm.Usage
 }
 
-func NewTaskResultError(task *Task, err error) *TaskResult {
-	return &TaskResult{
-		Task:  task,
+func NewStepResultError(step *Step, err error) *StepResult {
+	return &StepResult{
+		Step:  step,
 		Error: err,
 	}
 }

@@ -8,7 +8,7 @@ import (
 
 // messageWork represents a task assignment message sent to an agent
 type messageWork struct {
-	task      *Task
+	step      *Step
 	publisher *StreamPublisher
 }
 

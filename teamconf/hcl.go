@@ -14,7 +14,7 @@ type HCLTeam struct {
 	Name        string        `hcl:"name,optional"`
 	Description string        `hcl:"description,optional"`
 	Agents      []Agent       `hcl:"agent,block"`
-	Tasks       []Task        `hcl:"task,block"`
+	Steps       []Step        `hcl:"step,block"`
 	Config      Config        `hcl:"config,block"`
 	Variables   []HCLVariable `hcl:"variable,block"`
 	Tools       []HCLTool     `hcl:"tool,block"`
@@ -145,7 +145,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	var def HCLTeam
 
 	// Create maps to store task and agent references
-	taskRefs := make(map[string]cty.Value)
+	stepRefs := make(map[string]cty.Value)
 	agentRefs := make(map[string]cty.Value)
 	toolRefs := make(map[string]cty.Value)
 	docRefs := make(map[string]cty.Value)
@@ -153,9 +153,9 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	// First pass through blocks to collect task, agent, and tool names for references
 	for _, block := range content.Blocks {
 		switch block.Type {
-		case "task":
-			taskName := block.Labels[0]
-			taskRefs[taskName] = cty.StringVal(taskName)
+		case "step":
+			stepName := block.Labels[0]
+			stepRefs[stepName] = cty.StringVal(stepName)
 		case "agent":
 			agentName := block.Labels[0]
 			agentRefs[agentName] = cty.StringVal(agentName)
@@ -169,7 +169,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	}
 
 	// Add references to evaluation context
-	evalCtx.Variables["tasks"] = cty.ObjectVal(taskRefs)
+	evalCtx.Variables["steps"] = cty.ObjectVal(stepRefs)
 	evalCtx.Variables["agents"] = cty.ObjectVal(agentRefs)
 	evalCtx.Variables["tools"] = cty.ObjectVal(toolRefs)
 	evalCtx.Variables["documents"] = cty.ObjectVal(docRefs)
@@ -387,9 +387,9 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						agent.CacheControl = val.AsString()
 					}
-				case "task_timeout":
+				case "step_timeout":
 					if val.Type() == cty.String {
-						agent.TaskTimeout = val.AsString()
+						agent.StepTimeout = val.AsString()
 					}
 				case "chat_timeout":
 					if val.Type() == cty.String {
@@ -409,9 +409,9 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 
 			def.Agents = append(def.Agents, agent)
 
-		case "task":
-			var task Task
-			task.Name = block.Labels[0]
+		case "step":
+			var step Step
+			step.Name = block.Labels[0]
 
 			// Get the full content first
 			content, diags := block.Body.Content(&hcl.BodySchema{
@@ -428,7 +428,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 				},
 			})
 			if diags.HasErrors() {
-				return nil, fmt.Errorf("failed to decode task block: %s", diags.Error())
+				return nil, fmt.Errorf("failed to decode step block: %s", diags.Error())
 			}
 
 			// Process each attribute
@@ -441,19 +441,19 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 				switch name {
 				case "description":
 					if val.Type() == cty.String {
-						task.Description = val.AsString()
+						step.Description = val.AsString()
 					}
 				case "expected_output":
 					if val.Type() == cty.String {
-						task.ExpectedOutput = val.AsString()
+						step.ExpectedOutput = val.AsString()
 					}
 				case "output_format":
 					if val.Type() == cty.String {
-						task.OutputFormat = val.AsString()
+						step.OutputFormat = val.AsString()
 					}
 				case "assigned_agent":
 					if val.Type() == cty.String {
-						task.AssignedAgent = val.AsString()
+						step.AssignedAgent = val.AsString()
 					}
 				case "dependencies":
 					if !val.CanIterateElements() {
@@ -464,7 +464,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 						if v.Type() != cty.String {
 							return nil, fmt.Errorf("dependency must be a string")
 						}
-						task.Dependencies = append(task.Dependencies, v.AsString())
+						step.Dependencies = append(step.Dependencies, v.AsString())
 					}
 				case "documents":
 					if !val.CanIterateElements() {
@@ -475,24 +475,24 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 						if v.Type() != cty.String {
 							return nil, fmt.Errorf("document must be a string")
 						}
-						task.Documents = append(task.Documents, v.AsString())
+						step.Documents = append(step.Documents, v.AsString())
 					}
 				case "output_file":
 					if val.Type() == cty.String {
-						task.OutputFile = val.AsString()
+						step.OutputFile = val.AsString()
 					}
 				case "timeout":
 					if val.Type() == cty.String {
-						task.Timeout = val.AsString()
+						step.Timeout = val.AsString()
 					}
 				case "context":
 					if val.Type() == cty.String {
-						task.Context = val.AsString()
+						step.Context = val.AsString()
 					}
 				}
 			}
 
-			def.Tasks = append(def.Tasks, task)
+			def.Steps = append(def.Steps, step)
 
 		case "tool":
 			var tool HCLTool

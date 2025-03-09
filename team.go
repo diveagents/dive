@@ -22,7 +22,7 @@ type DiveTeam struct {
 	agents       []Agent
 	supervisors  []Agent
 	running      bool
-	initialTasks []*Task
+	initialSteps []*Step
 	outputDir    string
 	outputPlugin OutputPlugin
 	documents    DocumentStore
@@ -36,7 +36,7 @@ type TeamOptions struct {
 	Name         string
 	Description  string
 	Agents       []Agent
-	Tasks        []*Task
+	Steps        []*Step
 	Documents    DocumentStore
 	LogLevel     string
 	Logger       slogger.Logger
@@ -64,15 +64,15 @@ func NewTeam(opts TeamOptions) (*DiveTeam, error) {
 		name:         opts.Name,
 		description:  opts.Description,
 		agents:       opts.Agents,
-		initialTasks: opts.Tasks,
+		initialSteps: opts.Steps,
 		logLevel:     opts.LogLevel,
 		logger:       opts.Logger,
 		outputDir:    opts.OutputDir,
 		outputPlugin: opts.OutputPlugin,
 		documents:    opts.Documents,
 	}
-	for _, task := range opts.Tasks {
-		if err := task.Validate(); err != nil {
+	for _, step := range opts.Steps {
+		if err := step.Validate(); err != nil {
 			return nil, err
 		}
 	}
@@ -207,11 +207,11 @@ func (t *DiveTeam) Stop(ctx context.Context) error {
 // results to the caller as progress is made. This batch of work is considered
 // independent of any other work the team may be doing. If the team has not yet
 // started, it is automatically started.
-func (t *DiveTeam) Work(ctx context.Context, tasks ...*Task) (Stream, error) {
+func (t *DiveTeam) Work(ctx context.Context, steps ...*Step) (Stream, error) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	var todo []*Task
+	var todo []*Step
 
 	// Automatically start as needed
 	if !t.running {
@@ -219,53 +219,53 @@ func (t *DiveTeam) Work(ctx context.Context, tasks ...*Task) (Stream, error) {
 			return nil, err
 		}
 	}
-	// Any initial tasks are enqueued first
-	if len(t.initialTasks) > 0 {
-		todo = append(todo, t.initialTasks...)
-		t.initialTasks = nil
+	// Any initial steps are enqueued first
+	if len(t.initialSteps) > 0 {
+		todo = append(todo, t.initialSteps...)
+		t.initialSteps = nil
 	}
-	// Add any tasks provided by the caller
-	if len(tasks) > 0 {
-		todo = append(todo, tasks...)
+	// Add any steps provided by the caller
+	if len(steps) > 0 {
+		todo = append(todo, steps...)
 	}
 	// Make sure we have something to do
 	if len(todo) == 0 {
-		return nil, fmt.Errorf("no tasks to work on")
+		return nil, fmt.Errorf("no steps to work on")
 	}
 
-	// Validate and index tasks by name
-	tasksByName := make(map[string]*Task, len(todo))
-	for _, task := range todo {
-		if err := task.Validate(); err != nil {
+	// Validate and index steps by name
+	stepsByName := make(map[string]*Step, len(todo))
+	for _, step := range todo {
+		if err := step.Validate(); err != nil {
 			return nil, err
 		}
-		name := task.Name()
-		if tasksByName[name] != nil {
-			return nil, fmt.Errorf("duplicate task name: %q", name)
+		name := step.Name()
+		if stepsByName[name] != nil {
+			return nil, fmt.Errorf("duplicate step name: %q", name)
 		}
-		tasksByName[name] = task
+		stepsByName[name] = step
 	}
 
-	// Sort tasks into execution order
-	orderedNames, err := OrderTasks(todo)
+	// Sort steps into execution order
+	orderedNames, err := OrderSteps(todo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine task execution order: %w", err)
+		return nil, fmt.Errorf("failed to determine step execution order: %w", err)
 	}
-	var orderedTasks []*Task
-	for _, taskName := range orderedNames {
-		orderedTasks = append(orderedTasks, tasksByName[taskName])
+	var orderedSteps []*Step
+	for _, stepName := range orderedNames {
+		orderedSteps = append(orderedSteps, stepsByName[stepName])
 	}
 
 	// This stream will be used to deliver events and results to the caller
 	stream := NewDiveStream()
 
 	// Run work and process events in a separate goroutine
-	go t.workOnTasks(ctx, orderedTasks, stream)
+	go t.workOnSteps(ctx, orderedSteps, stream)
 
 	return stream, nil
 }
 
-func (t *DiveTeam) workOnTasks(ctx context.Context, tasks []*Task, stream *DiveStream) {
+func (t *DiveTeam) workOnSteps(ctx context.Context, steps []*Step, stream *DiveStream) {
 	publisher := NewStreamPublisher(stream)
 	defer publisher.Close()
 
@@ -273,19 +273,19 @@ func (t *DiveTeam) workOnTasks(ctx context.Context, tasks []*Task, stream *DiveS
 
 	t.logger.Debug("team work started",
 		"team_name", t.name,
-		"task_count", len(tasks),
-		"task_names", TaskNames(tasks),
+		"step_count", len(steps),
+		"step_names", StepNames(steps),
 	)
 
 	totalUsage := llm.Usage{}
 
 	// Work on tasks sequentially
-	for _, task := range tasks {
+	for _, step := range steps {
 
 		// Determine which agent should take the task
 		var agent Agent
-		if task.AssignedAgent() != nil {
-			agent = task.AssignedAgent()
+		if step.AssignedAgent() != nil {
+			agent = step.AssignedAgent()
 		} else if len(t.supervisors) > 0 {
 			agent = t.supervisors[0]
 		} else {
@@ -293,7 +293,7 @@ func (t *DiveTeam) workOnTasks(ctx context.Context, tasks []*Task, stream *DiveS
 		}
 
 		// Capture the output of any dependencies and store on the task
-		if dependencies := task.Dependencies(); len(dependencies) > 0 {
+		if dependencies := step.Dependencies(); len(dependencies) > 0 {
 			var outputs []string
 			for _, dep := range dependencies {
 				depResult, err := t.outputPlugin.ReadOutput(ctx, dep, "")
@@ -301,37 +301,37 @@ func (t *DiveTeam) workOnTasks(ctx context.Context, tasks []*Task, stream *DiveS
 					// This should never happen since the tasks were sorted into
 					// execution order! If it does, it indicates a severe bug so
 					// a panic is appropriate.
-					panic(fmt.Sprintf("task execution failure: task %q dependency %q", task.Name(), dep))
+					panic(fmt.Sprintf("task execution failure: task %q dependency %q", step.Name(), dep))
 				}
 				outputs = append(outputs, fmt.Sprintf("<output task=%q>\n%s\n</output>", dep, depResult))
 			}
-			task.SetDependenciesOutput(strings.Join(outputs, "\n\n"))
+			step.SetDependenciesOutput(strings.Join(outputs, "\n\n"))
 		}
 
 		// Has this work already been done?
-		done, err := t.outputPlugin.OutputExists(ctx, task.Name(), "")
+		done, err := t.outputPlugin.OutputExists(ctx, step.Name(), "")
 		if err != nil {
-			t.logger.Error("failed to check if task output exists", "error", err)
+			t.logger.Error("failed to check if step output exists", "error", err)
 		}
 		if !done {
-			// Work the task to completion
-			result, err := t.workOnTask(ctx, task, agent, publisher)
+			// Work the step to completion
+			result, err := t.workOnStep(ctx, step, agent, publisher)
 			if err != nil {
 				publisher.Send(backgroundCtx, &StreamEvent{
 					Type:      "work.error",
-					TaskName:  task.Name(),
+					StepName:  step.Name(),
 					AgentName: agent.Name(),
-					Error:     fmt.Sprintf("work failed on task %q agent %q: %v", task.Name(), agent.Name(), err),
+					Error:     fmt.Sprintf("work failed on step %q agent %q: %v", step.Name(), agent.Name(), err),
 				})
 				return
 			}
-			// Store the task results
-			if err := t.outputPlugin.WriteOutput(ctx, task.Name(), "", result.Content); err != nil {
+			// Store the step results
+			if err := t.outputPlugin.WriteOutput(ctx, step.Name(), "", result.Content); err != nil {
 				publisher.Send(backgroundCtx, &StreamEvent{
 					Type:      "work.error",
-					TaskName:  task.Name(),
+					StepName:  step.Name(),
 					AgentName: agent.Name(),
-					Error:     fmt.Sprintf("failed to write output for task %q: %v", task.Name(), err),
+					Error:     fmt.Sprintf("failed to write output for step %q: %v", step.Name(), err),
 				})
 				return
 			}
@@ -340,7 +340,7 @@ func (t *DiveTeam) workOnTasks(ctx context.Context, tasks []*Task, stream *DiveS
 			totalUsage.CacheCreationInputTokens += result.Usage.CacheCreationInputTokens
 			totalUsage.CacheReadInputTokens += result.Usage.CacheReadInputTokens
 		} else {
-			t.logger.Info("task output already exists - skipping", "task_name", task.Name())
+			t.logger.Info("step output already exists - skipping", "step_name", step.Name())
 		}
 	}
 
@@ -357,23 +357,23 @@ func (t *DiveTeam) workOnTasks(ctx context.Context, tasks []*Task, stream *DiveS
 	publisher.Send(backgroundCtx, &StreamEvent{Type: "work.done"})
 }
 
-func (t *DiveTeam) workOnTask(ctx context.Context, task *Task, agent Agent, pub *StreamPublisher) (*TaskResult, error) {
+func (t *DiveTeam) workOnStep(ctx context.Context, step *Step, agent Agent, pub *StreamPublisher) (*StepResult, error) {
 	workerAgent, ok := agent.(TeamAgent)
 	if !ok {
-		return nil, fmt.Errorf("agent %q does not accept tasks", agent.Name())
+		return nil, fmt.Errorf("agent %q does not accept steps", agent.Name())
 	}
 
-	taskStream, err := workerAgent.Work(ctx, task)
+	stream, err := workerAgent.Work(ctx, step)
 	if err != nil {
 		return nil, err
 	}
-	defer taskStream.Close()
+	defer stream.Close()
 
 	logger := t.logger.With(
-		"task_name", task.Name(),
+		"step_name", step.Name(),
 		"agent_name", agent.Name(),
 	)
-	logger.Info("assigned task")
+	logger.Info("assigned step")
 
 	// Heartbeats will indicate to the client that we're still going
 	heartbeatTicker := time.NewTicker(time.Second * 3)
@@ -385,7 +385,7 @@ func (t *DiveTeam) workOnTask(ctx context.Context, task *Task, agent Agent, pub 
 	for !done {
 		select {
 		// Forward all events via the publisher
-		case event, ok := <-taskStream.Channel():
+		case event, ok := <-stream.Channel():
 			if !ok {
 				done = true
 				continue
@@ -397,16 +397,16 @@ func (t *DiveTeam) workOnTask(ctx context.Context, task *Task, agent Agent, pub 
 				logger.Error("task failed", "error", event.Error)
 				return nil, errors.New(event.Error)
 			}
-			if event.TaskResult != nil {
-				logger.Info("task completed")
-				return event.TaskResult, nil
+			if event.StepResult != nil {
+				logger.Info("step completed")
+				return event.StepResult, nil
 			}
 
 		// Send heartbeats periodically
 		case <-heartbeatTicker.C:
 			pub.Send(ctx, &StreamEvent{
-				Type:      "task.heartbeat",
-				TaskName:  task.Name(),
+				Type:      "step.heartbeat",
+				StepName:  step.Name(),
 				AgentName: agent.Name(),
 			})
 
@@ -418,7 +418,7 @@ func (t *DiveTeam) workOnTask(ctx context.Context, task *Task, agent Agent, pub 
 
 	// Reaching this point may indicate a bug since a task result should have
 	// been returned, even if it failed. Return an error in any case.
-	return nil, fmt.Errorf("task %q did not return a result", task.Name())
+	return nil, fmt.Errorf("step %q did not return a result", step.Name())
 }
 
 // GetAgent returns the agent with the given name
@@ -467,10 +467,10 @@ func AgentNames(agents []Agent) []string {
 	return agentNames
 }
 
-func TaskNames(tasks []*Task) []string {
-	var taskNames []string
-	for _, task := range tasks {
-		taskNames = append(taskNames, task.Name())
+func StepNames(steps []*Step) []string {
+	var stepNames []string
+	for _, step := range steps {
+		stepNames = append(stepNames, step.Name())
 	}
-	return taskNames
+	return stepNames
 }

@@ -69,12 +69,12 @@ func buildAgent(
 		agentTools = append(agentTools, tool)
 	}
 
-	var taskTimeout, chatTimeout time.Duration
-	if agentDef.TaskTimeout != "" {
+	var stepTimeout, chatTimeout time.Duration
+	if agentDef.StepTimeout != "" {
 		var err error
-		taskTimeout, err = time.ParseDuration(agentDef.TaskTimeout)
+		stepTimeout, err = time.ParseDuration(agentDef.StepTimeout)
 		if err != nil {
-			return nil, fmt.Errorf("invalid task timeout: %w", err)
+			return nil, fmt.Errorf("invalid step timeout: %w", err)
 		}
 	}
 
@@ -100,7 +100,7 @@ func buildAgent(
 		AcceptedEvents:     agentDef.AcceptedEvents,
 		LLM:                llmProvider,
 		Tools:              agentTools,
-		TaskTimeout:        taskTimeout,
+		StepTimeout:        stepTimeout,
 		ChatTimeout:        chatTimeout,
 		CacheControl:       cacheControl,
 		LogLevel:           globalConfig.LogLevel,
@@ -110,15 +110,15 @@ func buildAgent(
 	return agent, nil
 }
 
-func buildTask(
-	taskDef Task,
+func buildStep(
+	stepDef Step,
 	agents []dive.Agent,
 	variables map[string]interface{},
-) (*dive.Task, error) {
+) (*dive.Step, error) {
 	var timeout time.Duration
-	if taskDef.Timeout != "" {
+	if stepDef.Timeout != "" {
 		var err error
-		timeout, err = time.ParseDuration(taskDef.Timeout)
+		timeout, err = time.ParseDuration(stepDef.Timeout)
 		if err != nil {
 			return nil, fmt.Errorf("invalid timeout: %w", err)
 		}
@@ -126,36 +126,36 @@ func buildTask(
 
 	// Find assigned agent if specified
 	var assignedAgent dive.Agent
-	if taskDef.AssignedAgent != "" {
+	if stepDef.AssignedAgent != "" {
 		for _, agent := range agents {
-			if agent.Name() == taskDef.AssignedAgent {
+			if agent.Name() == stepDef.AssignedAgent {
 				assignedAgent = agent
 				break
 			}
 		}
 		if assignedAgent == nil {
-			return nil, fmt.Errorf("assigned agent %s not found", taskDef.AssignedAgent)
+			return nil, fmt.Errorf("assigned agent %s not found", stepDef.AssignedAgent)
 		}
 	}
 
 	// Convert document names to document refs
 	var documentRefs []dive.DocumentRef
-	for _, docName := range taskDef.Documents {
+	for _, docName := range stepDef.Documents {
 		documentRefs = append(documentRefs, dive.DocumentRef{
 			Name: docName,
 		})
 	}
 
-	return dive.NewTask(dive.TaskOptions{
-		Name:           taskDef.Name,
-		Description:    taskDef.Description,
-		ExpectedOutput: taskDef.ExpectedOutput,
-		Dependencies:   taskDef.Dependencies,
-		OutputFormat:   dive.OutputFormat(taskDef.OutputFormat),
+	return dive.NewStep(dive.StepOptions{
+		Name:           stepDef.Name,
+		Description:    stepDef.Description,
+		ExpectedOutput: stepDef.ExpectedOutput,
+		Dependencies:   stepDef.Dependencies,
+		OutputFormat:   dive.OutputFormat(stepDef.OutputFormat),
 		AssignedAgent:  assignedAgent,
-		OutputFile:     taskDef.OutputFile,
+		OutputFile:     stepDef.OutputFile,
 		Timeout:        timeout,
-		Context:        taskDef.Context,
+		Context:        stepDef.Context,
 		DocumentRefs:   documentRefs,
 	}), nil
 }

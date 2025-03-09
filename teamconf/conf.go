@@ -17,7 +17,7 @@ type Team struct {
 	Name        string           `yaml:"name,omitempty" json:"name,omitempty"`
 	Description string           `yaml:"description,omitempty" json:"description,omitempty"`
 	Agents      []Agent          `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Tasks       []Task           `yaml:"tasks,omitempty" json:"tasks,omitempty"`
+	Steps       []Step           `yaml:"steps,omitempty" json:"steps,omitempty"`
 	Tools       []ToolDefinition `yaml:"tools,omitempty" json:"tools,omitempty"`
 	Config      Config           `yaml:"config,omitempty" json:"config,omitempty"`
 	Variables   []Variable       `yaml:"variables,omitempty" json:"variables,omitempty"`
@@ -53,14 +53,14 @@ type Agent struct {
 	Model              string   `yaml:"model,omitempty" json:"model,omitempty" hcl:"model,optional"`
 	Tools              []string `yaml:"tools,omitempty" json:"tools,omitempty" hcl:"tools,optional"`
 	CacheControl       string   `yaml:"cache_control,omitempty" json:"cache_control,omitempty" hcl:"cache_control,optional"`
-	TaskTimeout        string   `yaml:"task_timeout,omitempty" json:"task_timeout,omitempty" hcl:"task_timeout,optional"`
+	StepTimeout        string   `yaml:"step_timeout,omitempty" json:"step_timeout,omitempty" hcl:"step_timeout,optional"`
 	ChatTimeout        string   `yaml:"chat_timeout,omitempty" json:"chat_timeout,omitempty" hcl:"chat_timeout,optional"`
 	ToolIterationLimit int      `yaml:"tool_iteration_limit,omitempty" json:"tool_iteration_limit,omitempty" hcl:"tool_iteration_limit,optional"`
 	LogLevel           string   `yaml:"log_level,omitempty" json:"log_level,omitempty" hcl:"log_level,optional"`
 }
 
-// Task is a serializable representation of a dive.Task
-type Task struct {
+// Step is a serializable representation of a dive.Step
+type Step struct {
 	Name           string   `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
 	Description    string   `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
 	ExpectedOutput string   `yaml:"expected_output,omitempty" json:"expected_output,omitempty" hcl:"expected_output,optional"`
@@ -76,7 +76,7 @@ type Task struct {
 // ToolDefinition used for serializing tool configurations
 type ToolDefinition map[string]interface{}
 
-// Document represents a document that can be referenced by agents and tasks
+// Document represents a document that can be referenced by agents and steps
 type Document struct {
 	ID          string   `yaml:"id,omitempty" json:"id,omitempty" hcl:"id,label"`
 	Name        string   `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
@@ -161,7 +161,7 @@ func LoadHCL(conf []byte, filename string, variables map[string]interface{}) (*T
 		Name:        hclteam.Name,
 		Description: hclteam.Description,
 		Agents:      hclteam.Agents,
-		Tasks:       hclteam.Tasks,
+		Steps:       hclteam.Steps,
 		Config:      hclteam.Config,
 		Variables:   teamVariables,
 		Tools:       tools,
@@ -252,13 +252,13 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 		agents = append(agents, agent)
 	}
 
-	tasks := make([]*dive.Task, 0, len(def.Tasks))
-	for _, taskDef := range def.Tasks {
-		task, err := buildTask(taskDef, agents, buildOpts.Variables)
+	steps := make([]*dive.Step, 0, len(def.Steps))
+	for _, stepDef := range def.Steps {
+		step, err := buildStep(stepDef, agents, buildOpts.Variables)
 		if err != nil {
-			return nil, fmt.Errorf("failed to build task %s: %w", taskDef.Name, err)
+			return nil, fmt.Errorf("failed to build step %s: %w", stepDef.Name, err)
 		}
-		tasks = append(tasks, task)
+		steps = append(steps, step)
 	}
 
 	if len(def.Documents) > 0 && buildOpts.DocumentStore == nil {
@@ -278,7 +278,7 @@ func (def *Team) Build(opts ...BuildOption) (dive.Team, error) {
 		Name:        def.Name,
 		Description: def.Description,
 		Agents:      agents,
-		Tasks:       tasks,
+		Steps:       steps,
 		Documents:   buildOpts.DocumentStore,
 		Logger:      logger,
 		LogLevel:    logLevel,

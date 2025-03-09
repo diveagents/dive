@@ -10,10 +10,10 @@ type StructuredResponse struct {
 	StatusDescription string
 }
 
-func (sr StructuredResponse) Status() TaskStatus {
+func (sr StructuredResponse) Status() StepStatus {
 	fields := strings.Fields(sr.StatusDescription)
 	if len(fields) == 0 {
-		return TaskStatusInvalid
+		return StepStatusInvalid
 	}
 	// Find the first matching status
 	for _, field := range fields {
@@ -21,18 +21,18 @@ func (sr StructuredResponse) Status() TaskStatus {
 		value = strings.TrimSuffix(value, "\"")
 		switch value {
 		case "active":
-			return TaskStatusActive
+			return StepStatusActive
 		case "paused":
-			return TaskStatusPaused
+			return StepStatusPaused
 		case "completed":
-			return TaskStatusCompleted
+			return StepStatusCompleted
 		case "blocked":
-			return TaskStatusBlocked
+			return StepStatusBlocked
 		case "error":
-			return TaskStatusError
+			return StepStatusError
 		}
 	}
-	return TaskStatusInvalid
+	return StepStatusInvalid
 }
 
 func ParseStructuredResponse(text string) StructuredResponse {

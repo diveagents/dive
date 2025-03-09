@@ -10,7 +10,7 @@ var (
 	agentSystemPromptTemplate *template.Template
 	chatSystemPromptTemplate  *template.Template
 	teamPromptTemplate        *template.Template
-	taskStatePromptTemplate   *template.Template
+	stepStatePromptTemplate   *template.Template
 )
 
 func init() {
@@ -27,7 +27,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	taskStatePromptTemplate, err = parseTemplate("task_state_prompt", taskStatePromptText)
+	stepStatePromptTemplate, err = parseTemplate("step_state_prompt", stepStatePromptText)
 	if err != nil {
 		panic(err)
 	}
@@ -240,12 +240,12 @@ The team consists of the following agents:
 - Name: {{ $agent.Name }}, Description: "{{ $agent.Description }}"
 {{- end }}`
 
-var taskStatePromptText = `# Task State
+var stepStatePromptText = `# Step State
 
-The task is described as: "{{ .Task.Description }}"
+The step is described as: "{{ .Step.Description }}"
 
-The task has the following dependencies:
-{{- range .Task.Dependencies }}
+The step has the following dependencies:
+{{- range .Step.Dependencies }}
 - {{ .Name }}
 {{- end }}
 
@@ -264,6 +264,6 @@ Prior Output:
 Last Reported Status:
 {{ .ReportedStatus }}`
 
-var finishTaskNowPrompt = "Finish the task to the best of your ability now. Do not use any more tools. Respond with the complete response to the task's prompt."
+var finishStepNowPrompt = "Finish the step to the best of your ability now. Do not use any more tools. Respond with the complete response to the step's prompt."
 
-var continueTaskPrompt = "Continue working on the task."
+var continueStepPrompt = "Continue working on the step."

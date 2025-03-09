@@ -27,8 +27,8 @@ type AssignWorkToolOptions struct {
 	// Self indicates which agent owns this tool
 	Self TeamAgent
 
-	// DefaultTaskTimeout is the default timeout for tasks assigned using this tool
-	DefaultTaskTimeout time.Duration
+	// DefaultStepTimeout is the default timeout for steps assigned using this tool
+	DefaultStepTimeout time.Duration
 }
 
 // AssignWorkTool is a tool that can be used to assign a task to another agent.
@@ -36,19 +36,19 @@ type AssignWorkToolOptions struct {
 // the output of the task.
 type AssignWorkTool struct {
 	self               TeamAgent
-	defaultTaskTimeout time.Duration
+	defaultStepTimeout time.Duration
 }
 
 // NewAssignWorkTool creates a new AssignWorkTool with the given agent as the
 // tool's owner. This is used to make sure we don't assign work to ourselves.
 // The default task timeout is set to 5 minutes if not specified.
 func NewAssignWorkTool(opts AssignWorkToolOptions) *AssignWorkTool {
-	if opts.DefaultTaskTimeout <= 0 {
-		opts.DefaultTaskTimeout = 5 * time.Minute
+	if opts.DefaultStepTimeout <= 0 {
+		opts.DefaultStepTimeout = 5 * time.Minute
 	}
 	return &AssignWorkTool{
 		self:               opts.Self,
-		defaultTaskTimeout: opts.DefaultTaskTimeout,
+		defaultStepTimeout: opts.DefaultStepTimeout,
 	}
 }
 
@@ -132,18 +132,18 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 	}
 
 	// Capture this request as a new task
-	task := NewTask(TaskOptions{
+	step := NewStep(StepOptions{
 		Name:           params.Name,
 		Description:    params.Description,
 		ExpectedOutput: params.ExpectedOutput,
 		Context:        params.Context,
 		OutputFormat:   outputFormat,
 		AssignedAgent:  agent,
-		Timeout:        t.defaultTaskTimeout,
+		Timeout:        t.defaultStepTimeout,
 	})
 
 	// Tell the agent to work on the task
-	stream, err := teamAgent.Work(ctx, task)
+	stream, err := teamAgent.Work(ctx, step)
 	if err != nil {
 		return fmt.Sprintf("This assignment could not be started: %s", err.Error()), nil
 	}
@@ -161,8 +161,8 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 			if event.Error != "" {
 				return fmt.Sprintf("I encountered an error: %s", event.Error), nil
 			}
-			if event.TaskResult != nil {
-				return event.TaskResult.Content, nil
+			if event.StepResult != nil {
+				return event.StepResult.Content, nil
 			}
 		case <-ctx.Done():
 			return fmt.Sprintf("My work timed out: %s", ctx.Err()), nil

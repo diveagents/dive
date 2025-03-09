@@ -127,15 +127,15 @@ func sliceContains(slice []string, item string) bool {
 	return false
 }
 
-// OrderTasks sorts tasks into execution order using their dependencies.
-func OrderTasks(tasks []*Task) ([]string, error) {
-	nodes := make([]graph.Node, len(tasks))
-	for i, task := range tasks {
-		nodes[i] = task
+// OrderSteps sorts steps into execution order using their dependencies.
+func OrderSteps(steps []*Step) ([]string, error) {
+	nodes := make([]graph.Node, len(steps))
+	for i, step := range steps {
+		nodes[i] = step
 	}
 	order, err := graph.New(nodes).TopologicalSort()
 	if err != nil {
-		return nil, fmt.Errorf("invalid task dependencies: %w", err)
+		return nil, fmt.Errorf("invalid step dependencies: %w", err)
 	}
 	return order, nil
 }

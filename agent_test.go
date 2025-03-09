@@ -102,7 +102,7 @@ func TestAgentChatWithTools(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAgentTask(t *testing.T) {
+func TestAgentStep(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -118,14 +118,14 @@ func TestAgentTask(t *testing.T) {
 	require.NoError(t, err)
 	defer agent.Stop(ctx)
 
-	stream, err := agent.Work(ctx, NewTask(TaskOptions{
+	stream, err := agent.Work(ctx, NewStep(StepOptions{
 		Name:           "Poem",
 		Description:    "Write a cat poem",
 		ExpectedOutput: "A short poem about a cat",
 	}))
 	require.NoError(t, err)
 
-	var result *TaskResult
+	var result *StepResult
 	running := true
 	for running {
 		select {
@@ -134,21 +134,21 @@ func TestAgentTask(t *testing.T) {
 			if event == nil {
 				t.Fatal("received nil event from stream")
 			}
-			if event.TaskResult != nil {
-				result = event.TaskResult
+			if event.StepResult != nil {
+				result = event.StepResult
 				running = false
 			} else if event.Error != "" {
 				t.Fatal("received error event from stream:", event.Error)
 			}
 		case <-ctx.Done():
-			t.Fatal("context canceled while waiting for task result")
+			t.Fatal("context canceled while waiting for step result")
 		case <-time.After(10 * time.Second):
-			t.Fatal("timeout waiting for task result")
+			t.Fatal("timeout waiting for step result")
 		}
 	}
 
-	require.NotNil(t, result, "task result should not be nil")
-	require.NotEmpty(t, result.Content, "task result content should not be empty")
+	require.NotNil(t, result, "step result should not be nil")
+	require.NotEmpty(t, result.Content, "step result content should not be empty")
 
 	content := strings.ToLower(result.Content)
 	matches := 0

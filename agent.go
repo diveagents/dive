@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	DefaultTaskTimeout        = time.Minute * 5
+	DefaultStepTimeout        = time.Minute * 5
 	DefaultChatTimeout        = time.Minute * 1
 	DefaultTickFrequency      = time.Second * 1
 	DefaultToolIterationLimit = 8
@@ -48,7 +48,7 @@ type AgentOptions struct {
 	LLM                llm.LLM
 	Tools              []llm.Tool
 	TickFrequency      time.Duration
-	TaskTimeout        time.Duration
+	StepTimeout        time.Duration
 	ChatTimeout        time.Duration
 	CacheControl       string
 	LogLevel           string
@@ -78,12 +78,12 @@ type DiveAgent struct {
 	isSupervisor       bool
 	subordinates       []string
 	tickFrequency      time.Duration
-	taskTimeout        time.Duration
+	stepTimeout        time.Duration
 	chatTimeout        time.Duration
 	cacheControl       string
-	taskQueue          []*taskState
-	recentTasks        []*taskState
-	activeTask         *taskState
+	taskQueue          []*stepState
+	recentSteps        []*stepState
+	activeStep         *stepState
 	ticker             *time.Ticker
 	logLevel           string
 	hooks              llm.Hooks
@@ -110,8 +110,8 @@ func NewAgent(opts AgentOptions) *DiveAgent {
 	if opts.TickFrequency <= 0 {
 		opts.TickFrequency = DefaultTickFrequency
 	}
-	if opts.TaskTimeout <= 0 {
-		opts.TaskTimeout = DefaultTaskTimeout
+	if opts.StepTimeout <= 0 {
+		opts.StepTimeout = DefaultStepTimeout
 	}
 	if opts.ChatTimeout <= 0 {
 		opts.ChatTimeout = DefaultChatTimeout
@@ -145,7 +145,7 @@ func NewAgent(opts AgentOptions) *DiveAgent {
 		isSupervisor:       opts.IsSupervisor,
 		subordinates:       opts.Subordinates,
 		tickFrequency:      opts.TickFrequency,
-		taskTimeout:        opts.TaskTimeout,
+		stepTimeout:        opts.StepTimeout,
 		chatTimeout:        opts.ChatTimeout,
 		toolIterationLimit: opts.ToolIterationLimit,
 		cacheControl:       opts.CacheControl,
@@ -175,7 +175,7 @@ func NewAgent(opts AgentOptions) *DiveAgent {
 		if !foundAssignWorkTool {
 			tools = append(tools, NewAssignWorkTool(AssignWorkToolOptions{
 				Self:               agent,
-				DefaultTaskTimeout: opts.TaskTimeout,
+				DefaultStepTimeout: opts.StepTimeout,
 			}))
 		}
 	}
@@ -276,7 +276,7 @@ func (a *DiveAgent) Start(ctx context.Context) error {
 		"cache_control", a.cacheControl,
 		"is_supervisor", a.isSupervisor,
 		"subordinates", a.subordinates,
-		"task_timeout", a.taskTimeout,
+		"step_timeout", a.stepTimeout,
 		"chat_timeout", a.chatTimeout,
 		"tick_frequency", a.tickFrequency,
 		"tool_iteration_limit", a.toolIterationLimit,
@@ -399,7 +399,7 @@ func (a *DiveAgent) HandleEvent(ctx context.Context, event *Event) error {
 	}
 }
 
-func (a *DiveAgent) Work(ctx context.Context, task *Task) (Stream, error) {
+func (a *DiveAgent) Work(ctx context.Context, step *Step) (Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
@@ -408,7 +408,7 @@ func (a *DiveAgent) Work(ctx context.Context, task *Task) (Stream, error) {
 	stream := NewDiveStream()
 
 	message := messageWork{
-		task:      task,
+		step:      step,
 		publisher: NewStreamPublisher(stream),
 	}
 
@@ -454,10 +454,10 @@ func (a *DiveAgent) run() error {
 }
 
 func (a *DiveAgent) handleWork(m messageWork) {
-	a.taskQueue = append(a.taskQueue, &taskState{
-		Task:      m.task,
+	a.taskQueue = append(a.taskQueue, &stepState{
+		Step:      m.step,
 		Publisher: m.publisher,
-		Status:    TaskStatusQueued,
+		Status:    StepStatusQueued,
 	})
 }
 
@@ -564,7 +564,7 @@ func (a *DiveAgent) generate(
 	ctx context.Context,
 	messages []*llm.Message,
 	systemPrompt string,
-	taskName string,
+	stepName string,
 	publisher *StreamPublisher,
 ) (*llm.Response, []*llm.Message, error) {
 
@@ -640,7 +640,7 @@ func (a *DiveAgent) generate(
 				}
 				err = safePublish(&StreamEvent{
 					Type:      "llm.event",
-					TaskName:  taskName,
+					StepName:  stepName,
 					AgentName: a.name,
 					LLMEvent:  event,
 					Response:  currentResponse,
@@ -727,7 +727,7 @@ func (a *DiveAgent) generate(
 			a.logger.Debug(
 				"adding tool use limit instruction",
 				"agent", a.name,
-				"task", taskName,
+				"step", stepName,
 				"generation_number", i+1,
 			)
 		}
@@ -741,8 +741,8 @@ func (a *DiveAgent) documentStore() DocumentStore {
 	return a.team.DocumentStore()
 }
 
-func (a *DiveAgent) getTaskDocumentsMessage(ctx context.Context, task *Task) (*llm.Message, error) {
-	documents, err := a.loadTaskDocuments(ctx, task)
+func (a *DiveAgent) getStepDocumentsMessage(ctx context.Context, step *Step) (*llm.Message, error) {
+	documents, err := a.loadStepDocuments(ctx, step)
 	if err != nil {
 		return nil, err
 	}
@@ -758,13 +758,13 @@ func (a *DiveAgent) getTaskDocumentsMessage(ctx context.Context, task *Task) (*l
 	return llm.NewUserMessage(strings.Join(parts, "\n\n")), nil
 }
 
-// loadTaskDocuments loads the content of documents referenced by a task
-func (a *DiveAgent) loadTaskDocuments(ctx context.Context, task *Task) ([]Document, error) {
-	if len(task.DocumentRefs()) == 0 {
+// loadStepDocuments loads the content of documents referenced by a step
+func (a *DiveAgent) loadStepDocuments(ctx context.Context, step *Step) ([]Document, error) {
+	if len(step.DocumentRefs()) == 0 {
 		return nil, nil
 	}
 	var documents []Document
-	for _, ref := range task.DocumentRefs() {
+	for _, ref := range step.DocumentRefs() {
 		var err error
 		var doc Document
 		if ref.Name != "" {
@@ -792,17 +792,17 @@ func (a *DiveAgent) loadTaskDocuments(ctx context.Context, task *Task) ([]Docume
 		documents = append(documents, doc)
 	}
 	if len(documents) == 0 {
-		return nil, fmt.Errorf("no documents found for task %q", task.Name())
+		return nil, fmt.Errorf("no documents found for step %q", step.Name())
 	}
 	return documents, nil
 }
 
-func (a *DiveAgent) handleTask(ctx context.Context, state *taskState) error {
-	task := state.Task
+func (a *DiveAgent) handleStep(ctx context.Context, state *stepState) error {
+	step := state.Step
 
-	timeout := task.Timeout()
+	timeout := step.Timeout()
 	if timeout == 0 {
-		timeout = a.taskTimeout
+		timeout = a.stepTimeout
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -812,16 +812,16 @@ func (a *DiveAgent) handleTask(ctx context.Context, state *taskState) error {
 
 	logger := a.logger.With(
 		"agent_name", a.name,
-		"task_name", task.Name(),
+		"step_name", step.Name(),
 		"timeout", timeout.String(),
 	)
 
-	systemPrompt, err := a.getSystemPromptForMode("task")
+	systemPrompt, err := a.getSystemPromptForMode("step")
 	if err != nil {
 		return err
 	}
 
-	documentsMessage, err := a.getTaskDocumentsMessage(ctx, task)
+	documentsMessage, err := a.getStepDocumentsMessage(ctx, step)
 	if err != nil {
 		return err
 	}
@@ -829,29 +829,29 @@ func (a *DiveAgent) handleTask(ctx context.Context, state *taskState) error {
 	messages := []*llm.Message{}
 
 	if len(state.Messages) == 0 {
-		// Starting a task
-		if recentTasksMessage, ok := a.getTasksHistoryMessage(); ok {
-			messages = append(messages, recentTasksMessage)
+		// Starting a step
+		if recentStepsMessage, ok := a.getStepsHistoryMessage(); ok {
+			messages = append(messages, recentStepsMessage)
 		}
 		if documentsMessage != nil {
 			messages = append(messages, documentsMessage)
 		}
-		messages = append(messages, llm.NewUserMessage(task.Prompt()))
+		messages = append(messages, llm.NewUserMessage(step.Prompt()))
 	} else {
-		// Resuming a task
+		// Resuming a step
 		messages = append(messages, state.Messages...)
 		if len(state.Messages) < 32 {
-			messages = append(messages, llm.NewUserMessage(continueTaskPrompt))
+			messages = append(messages, llm.NewUserMessage(continueStepPrompt))
 		} else {
-			messages = append(messages, llm.NewUserMessage(finishTaskNowPrompt))
+			messages = append(messages, llm.NewUserMessage(finishStepNowPrompt))
 		}
 	}
 
 	logger.Info(
-		"handling task",
+		"handling step",
 		"status", state.Status,
-		"truncated_description", TruncateText(task.Description(), 10),
-		"truncated_prompt", TruncateText(task.Prompt(), 10),
+		"truncated_description", TruncateText(step.Description(), 10),
+		"truncated_prompt", TruncateText(step.Prompt(), 10),
 		"message_count", len(messages),
 	)
 
@@ -860,7 +860,7 @@ func (a *DiveAgent) handleTask(ctx context.Context, state *taskState) error {
 		ctx,
 		messages,
 		systemPrompt,
-		task.Name(),
+		step.Name(),
 		state.Publisher,
 	)
 	if err != nil {
@@ -868,7 +868,7 @@ func (a *DiveAgent) handleTask(ctx context.Context, state *taskState) error {
 	}
 	state.TrackResponse(response, updatedMessages)
 
-	logger.Info("task updated",
+	logger.Info("step updated",
 		"status", state.Status,
 		"status_description", state.StatusDescription(),
 	)
@@ -879,166 +879,166 @@ func (a *DiveAgent) doSomeWork() {
 
 	// Helper function to safely send events to the active task's publisher
 	safePublish := func(event *StreamEvent) error {
-		if a.activeTask.Publisher == nil {
+		if a.activeStep.Publisher == nil {
 			return nil
 		}
-		return a.activeTask.Publisher.Send(context.Background(), event)
+		return a.activeStep.Publisher.Send(context.Background(), event)
 	}
 
 	// Activate the next task if there is one and we're idle
-	if a.activeTask == nil && len(a.taskQueue) > 0 {
+	if a.activeStep == nil && len(a.taskQueue) > 0 {
 		// Pop and activate the first task in queue
-		a.activeTask = a.taskQueue[0]
+		a.activeStep = a.taskQueue[0]
 		a.taskQueue = a.taskQueue[1:]
-		a.activeTask.Status = TaskStatusActive
-		if !a.activeTask.Paused {
-			a.activeTask.Started = time.Now()
+		a.activeStep.Status = StepStatusActive
+		if !a.activeStep.Paused {
+			a.activeStep.Started = time.Now()
 		} else {
-			a.activeTask.Paused = false
+			a.activeStep.Paused = false
 		}
 		safePublish(&StreamEvent{
-			Type:      "task.activated",
-			TaskName:  a.activeTask.Task.Name(),
+			Type:      "step.activated",
+			StepName:  a.activeStep.Step.Name(),
 			AgentName: a.name,
 		})
-		a.logger.Debug("task activated",
+		a.logger.Debug("step activated",
 			"agent", a.name,
-			"task", a.activeTask.Task.Name(),
-			"description", a.activeTask.Task.Description(),
+			"step", a.activeStep.Step.Name(),
+			"description", a.activeStep.Step.Description(),
 		)
 	}
 
-	if a.activeTask == nil {
+	if a.activeStep == nil {
 		return // Nothing to do!
 	}
-	taskName := a.activeTask.Task.Name()
+	stepName := a.activeStep.Step.Name()
 
 	// Make progress on the active task
-	err := a.handleTask(context.Background(), a.activeTask)
+	err := a.handleStep(context.Background(), a.activeStep)
 
 	// An error deactivates the task and pushes an error event on the stream
 	if err != nil {
-		a.activeTask.Status = TaskStatusError
-		a.rememberTask(a.activeTask)
+		a.activeStep.Status = StepStatusError
+		a.rememberStep(a.activeStep)
 		safePublish(&StreamEvent{
-			Type:      "task.error",
-			TaskName:  taskName,
+			Type:      "step.error",
+			StepName:  stepName,
 			AgentName: a.name,
 			Error:     err.Error(),
 		})
-		a.logger.Error("task error",
+		a.logger.Error("step error",
 			"agent", a.name,
-			"task", taskName,
-			"duration", time.Since(a.activeTask.Started).Seconds(),
+			"step", stepName,
+			"duration", time.Since(a.activeStep.Started).Seconds(),
 			"error", err,
 		)
-		if a.activeTask.Publisher != nil {
-			a.activeTask.Publisher.Close()
-			a.activeTask.Publisher = nil
+		if a.activeStep.Publisher != nil {
+			a.activeStep.Publisher.Close()
+			a.activeStep.Publisher = nil
 		}
-		a.activeTask = nil
+		a.activeStep = nil
 		return
 	}
 
 	// Handle task state transitions
-	switch a.activeTask.Status {
+	switch a.activeStep.Status {
 
-	case TaskStatusCompleted:
-		a.rememberTask(a.activeTask)
+	case StepStatusCompleted:
+		a.rememberStep(a.activeStep)
 		a.logger.Debug("task completed",
 			"agent", a.name,
-			"task", a.activeTask.Task.Name(),
-			"duration", time.Since(a.activeTask.Started).Seconds(),
+			"step", a.activeStep.Step.Name(),
+			"duration", time.Since(a.activeStep.Started).Seconds(),
 		)
 		safePublish(&StreamEvent{
-			Type:      "task.result",
-			TaskName:  taskName,
+			Type:      "step.result",
+			StepName:  stepName,
 			AgentName: a.name,
-			TaskResult: &TaskResult{
-				Task:    a.activeTask.Task,
-				Usage:   a.activeTask.Usage,
-				Content: a.activeTask.LastOutput(),
+			StepResult: &StepResult{
+				Step:    a.activeStep.Step,
+				Usage:   a.activeStep.Usage,
+				Content: a.activeStep.LastOutput(),
 			},
 		})
-		if a.activeTask.Publisher != nil {
-			a.activeTask.Publisher.Close()
-			a.activeTask.Publisher = nil
+		if a.activeStep.Publisher != nil {
+			a.activeStep.Publisher.Close()
+			a.activeStep.Publisher = nil
 		}
-		a.activeTask = nil
+		a.activeStep = nil
 
-	case TaskStatusActive:
-		a.logger.Debug("task remains active",
+	case StepStatusActive:
+		a.logger.Debug("step remains active",
 			"agent", a.name,
-			"task", a.activeTask.Task.Name(),
-			"status", a.activeTask.Status,
-			"status_description", a.activeTask.StatusDescription,
-			"duration", time.Since(a.activeTask.Started).Seconds(),
+			"step", a.activeStep.Step.Name(),
+			"status", a.activeStep.Status,
+			"status_description", a.activeStep.StatusDescription,
+			"duration", time.Since(a.activeStep.Started).Seconds(),
 		)
 		safePublish(&StreamEvent{
-			Type:      "task.progress",
-			TaskName:  taskName,
+			Type:      "step.progress",
+			StepName:  stepName,
 			AgentName: a.name,
 		})
 
-	case TaskStatusPaused:
+	case StepStatusPaused:
 		// Set paused flag and return the task to the queue
-		a.logger.Debug("task paused",
+		a.logger.Debug("step paused",
 			"agent", a.name,
-			"task", a.activeTask.Task.Name(),
+			"step", a.activeStep.Step.Name(),
 		)
 		safePublish(&StreamEvent{
-			Type:      "task.paused",
-			TaskName:  taskName,
+			Type:      "step.paused",
+			StepName:  stepName,
 			AgentName: a.name,
 		})
-		a.activeTask.Paused = true
-		a.taskQueue = append(a.taskQueue, a.activeTask)
-		a.activeTask = nil
+		a.activeStep.Paused = true
+		a.taskQueue = append(a.taskQueue, a.activeStep)
+		a.activeStep = nil
 
-	case TaskStatusBlocked, TaskStatusError, TaskStatusInvalid:
-		a.logger.Warn("task error",
+	case StepStatusBlocked, StepStatusError, StepStatusInvalid:
+		a.logger.Warn("step error",
 			"agent", a.name,
-			"task", a.activeTask.Task.Name(),
-			"status", a.activeTask.Status,
-			"status_description", a.activeTask.StatusDescription,
-			"duration", time.Since(a.activeTask.Started).Seconds(),
+			"step", a.activeStep.Step.Name(),
+			"status", a.activeStep.Status,
+			"status_description", a.activeStep.StatusDescription,
+			"duration", time.Since(a.activeStep.Started).Seconds(),
 		)
 		safePublish(&StreamEvent{
-			Type:      "task.error",
-			TaskName:  taskName,
+			Type:      "step.error",
+			StepName:  stepName,
 			AgentName: a.name,
-			Error:     fmt.Sprintf("task status: %s", a.activeTask.Status),
+			Error:     fmt.Sprintf("step status: %s", a.activeStep.Status),
 		})
-		if a.activeTask.Publisher != nil {
-			a.activeTask.Publisher.Close()
-			a.activeTask.Publisher = nil
+		if a.activeStep.Publisher != nil {
+			a.activeStep.Publisher.Close()
+			a.activeStep.Publisher = nil
 		}
-		a.activeTask = nil
+		a.activeStep = nil
 	}
 }
 
 // Remember the last 10 tasks that were worked on, so that the agent can use
 // them as context for future tasks.
-func (a *DiveAgent) rememberTask(task *taskState) {
-	a.recentTasks = append(a.recentTasks, task)
-	if len(a.recentTasks) > 10 {
-		a.recentTasks = a.recentTasks[1:]
+func (a *DiveAgent) rememberStep(step *stepState) {
+	a.recentSteps = append(a.recentSteps, step)
+	if len(a.recentSteps) > 10 {
+		a.recentSteps = a.recentSteps[1:]
 	}
 }
 
 // Returns a block of text that summarizes the most recent tasks worked on by
 // the agent. The text is truncated if needed to avoid using a lot of tokens.
-func (a *DiveAgent) getTasksHistory() string {
-	if len(a.recentTasks) == 0 {
+func (a *DiveAgent) getStepsHistory() string {
+	if len(a.recentSteps) == 0 {
 		return ""
 	}
-	history := make([]string, len(a.recentTasks))
-	for i, status := range a.recentTasks {
-		title := status.Task.Name()
+	history := make([]string, len(a.recentSteps))
+	for i, status := range a.recentSteps {
+		title := status.Step.Name()
 		if title == "" {
-			title = status.Task.Description()
+			title = status.Step.Description()
 		}
-		history[i] = fmt.Sprintf("- task: %q status: %q output: %q\n",
+		history[i] = fmt.Sprintf("- step: %q status: %q output: %q\n",
 			TruncateText(title, 8),
 			status.Status,
 			TruncateText(replaceNewlines(status.LastOutput()), 8),
@@ -1053,12 +1053,12 @@ func (a *DiveAgent) getTasksHistory() string {
 
 // Returns a user message that contains a summary of the most recent tasks
 // worked on by the agent.
-func (a *DiveAgent) getTasksHistoryMessage() (*llm.Message, bool) {
-	history := a.getTasksHistory()
+func (a *DiveAgent) getStepsHistoryMessage() (*llm.Message, bool) {
+	history := a.getStepsHistory()
 	if history == "" {
 		return nil, false
 	}
-	text := fmt.Sprintf("Recently completed tasks:\n\n%s", history)
+	text := fmt.Sprintf("Recently completed steps:\n\n%s", history)
 	return llm.NewUserMessage(text), true
 }
 
