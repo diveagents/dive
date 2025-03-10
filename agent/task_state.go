@@ -1,16 +1,16 @@
-package workflow
+package agent
 
 import (
 	"time"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
-	"github.com/getstingrai/dive/stream"
 )
 
 type taskState struct {
-	Task               *Task
-	Publisher          *stream.Publisher
+	Task               dive.Task
+	Publisher          events.Publisher
 	Status             dive.TaskStatus
 	Iterations         int
 	Started            time.Time

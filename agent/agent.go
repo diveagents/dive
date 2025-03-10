@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/document"
+	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/memory"
 	"github.com/getstingrai/dive/slogger"
-	"github.com/getstingrai/dive/stream"
-	"github.com/getstingrai/dive/workflow"
 )
 
 var (
@@ -23,15 +23,13 @@ var (
 	DefaultChatTimeout        = time.Minute * 1
 	DefaultTickFrequency      = time.Second * 1
 	DefaultToolIterationLimit = 8
-	DefaultLogger             = slogger.NewDevNullLogger()
 )
 
 // Confirm our standard implementation satisfies the different Agent interfaces
 var (
-	_ Agent             = &Agent{}
-	_ TeamAgent         = &Agent{}
-	_ RunnableAgent     = &Agent{}
-	_ EventHandlerAgent = &Agent{}
+	_ dive.Agent             = &Agent{}
+	_ dive.RunnableAgent     = &Agent{}
+	_ dive.EventHandlerAgent = &Agent{}
 )
 
 // chatThread contains the message history for a specific chat thread ID
@@ -65,15 +63,16 @@ type AgentOptions struct {
 	ReasoningFormat    string
 	ReasoningEffort    string
 	DateAwareness      *bool
+	Environment        dive.Environment
 }
 
 // Agent is the standard implementation of the Agent interface.
 type Agent struct {
-	name               string
-	description        string
-	instructions       string
-	llm                llm.LLM
-	team               Team
+	name         string
+	description  string
+	instructions string
+	llm          llm.LLM
+	// team               dive.Team
 	running            bool
 	tools              []llm.Tool
 	toolsByName        map[string]llm.Tool
@@ -81,12 +80,12 @@ type Agent struct {
 	isSupervisor       bool
 	subordinates       []string
 	tickFrequency      time.Duration
-	stepTimeout        time.Duration
+	taskTimeout        time.Duration
 	chatTimeout        time.Duration
 	cacheControl       string
-	taskQueue          []*stepState
-	recentSteps        []*stepState
-	activeStep         *stepState
+	taskQueue          []*taskState
+	recentTasks        []*taskState
+	activeTask         *taskState
 	ticker             *time.Ticker
 	logLevel           string
 	hooks              llm.Hooks
@@ -100,6 +99,7 @@ type Agent struct {
 	reasoningFormat    string
 	reasoningEffort    string
 	dateAwareness      *bool
+	environment        dive.Environment
 
 	// Holds incoming messages to be processed by the agent's run loop
 	mailbox chan interface{}
@@ -123,7 +123,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		opts.ToolIterationLimit = DefaultToolIterationLimit
 	}
 	if opts.Logger == nil {
-		opts.Logger = DefaultLogger
+		opts.Logger = dive.DefaultLogger
 	}
 	if opts.LLM == nil {
 		if llm, ok := detectProvider(); ok {
@@ -144,11 +144,12 @@ func NewAgent(opts AgentOptions) *Agent {
 		llm:                opts.LLM,
 		description:        opts.Description,
 		instructions:       opts.Instructions,
+		environment:        opts.Environment,
 		acceptedEvents:     opts.AcceptedEvents,
 		isSupervisor:       opts.IsSupervisor,
 		subordinates:       opts.Subordinates,
 		tickFrequency:      opts.TickFrequency,
-		stepTimeout:        opts.StepTimeout,
+		taskTimeout:        opts.StepTimeout,
 		chatTimeout:        opts.ChatTimeout,
 		toolIterationLimit: opts.ToolIterationLimit,
 		cacheControl:       opts.CacheControl,
@@ -187,9 +188,17 @@ func NewAgent(opts AgentOptions) *Agent {
 	if len(tools) > 0 {
 		agent.toolsByName = make(map[string]llm.Tool, len(tools))
 		for _, tool := range tools {
-			agent.toolsByName[tool.Defxinition().Name] = tool
+			agent.toolsByName[tool.Definition().Name] = tool
 		}
 	}
+
+	// Register with environment if provided
+	if opts.Environment != nil {
+		if err := opts.Environment.RegisterAgent(agent); err != nil {
+			panic(fmt.Sprintf("failed to register agent with environment: %v", err))
+		}
+	}
+
 	return agent
 }
 
@@ -214,18 +223,17 @@ func (a *Agent) IsSupervisor() bool {
 }
 
 func (a *Agent) Subordinates() []string {
-	if !a.isSupervisor || a.team == nil || len(a.team.Agents()) == 1 {
+	if !a.isSupervisor || a.environment == nil {
 		return nil
 	}
 	if a.subordinates != nil {
 		return a.subordinates
 	}
 	// If there are no other supervisors, assume we are the supervisor of all
-	// agents in the team.
+	// agents in the environment.
 	var isAnotherSupervisor bool
-	for _, agent := range a.team.Agents() {
-		teamAgent, ok := agent.(TeamAgent)
-		if ok && teamAgent.IsSupervisor() && teamAgent.Name() != a.name {
+	for _, agent := range a.environment.Agents() {
+		if agent.IsSupervisor() && agent.Name() != a.name {
 			isAnotherSupervisor = true
 		}
 	}
@@ -233,7 +241,7 @@ func (a *Agent) Subordinates() []string {
 		return nil
 	}
 	var others []string
-	for _, agent := range a.team.Agents() {
+	for _, agent := range a.environment.Agents() {
 		if agent.Name() != a.name {
 			others = append(others, agent.Name())
 		}
@@ -242,23 +250,23 @@ func (a *Agent) Subordinates() []string {
 	return others
 }
 
-func (a *Agent) Join(team Team) error {
-	a.mutex.Lock()
-	defer a.mutex.Unlock()
+// func (a *Agent) Join(team Team) error {
+// 	a.mutex.Lock()
+// 	defer a.mutex.Unlock()
 
-	if a.running {
-		return fmt.Errorf("agent is already running")
-	}
-	if a.team != nil {
-		return fmt.Errorf("agent is already a member of a team")
-	}
-	a.team = team
-	return nil
-}
+// 	if a.running {
+// 		return fmt.Errorf("agent is already running")
+// 	}
+// 	if a.team != nil {
+// 		return fmt.Errorf("agent is already a member of a team")
+// 	}
+// 	a.team = team
+// 	return nil
+// }
 
-func (a *Agent) Team() Team {
-	return a.team
-}
+// func (a *Agent) Team() Team {
+// 	return a.team
+// }
 
 func (a *Agent) Start(ctx context.Context) error {
 	a.mutex.Lock()
@@ -279,7 +287,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		"cache_control", a.cacheControl,
 		"is_supervisor", a.isSupervisor,
 		"subordinates", a.subordinates,
-		"step_timeout", a.stepTimeout,
+		"task_timeout", a.taskTimeout,
 		"chat_timeout", a.chatTimeout,
 		"tick_frequency", a.tickFrequency,
 		"tool_iteration_limit", a.toolIterationLimit,
@@ -359,17 +367,15 @@ func (a *Agent) Generate(ctx context.Context, message *llm.Message, opts ...Gene
 	}
 }
 
-func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (Stream, error) {
+func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (events.Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
 
 	var generateOptions generateOptions
-	for _, opt := range opts {
-		opt(&generateOptions)
-	}
+	generateOptions.Apply(opts)
 
-	stream := NewDiveStream()
+	stream := events.NewStream()
 
 	chatMessage := messageChat{
 		message: message,
@@ -389,7 +395,7 @@ func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...Genera
 	return stream, nil
 }
 
-func (a *Agent) HandleEvent(ctx context.Context, event *Event) error {
+func (a *Agent) HandleEvent(ctx context.Context, event *events.Event) error {
 	if !a.IsRunning() {
 		return fmt.Errorf("agent is not running")
 	}
@@ -402,17 +408,17 @@ func (a *Agent) HandleEvent(ctx context.Context, event *Event) error {
 	}
 }
 
-func (a *Agent) Work(ctx context.Context, step *workflow.Step) (*stream.Stream, error) {
+func (a *Agent) Work(ctx context.Context, task dive.Task) (events.Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
 
 	// Stream to be returned to the caller so it can wait for results
-	stream := stream.New()
+	stream := events.NewStream()
 
 	message := messageWork{
-		step:      step,
-		publisher: stream.NewPublisher(),
+		task:      task,
+		publisher: stream.Publisher(),
 	}
 
 	select {
@@ -443,7 +449,7 @@ func (a *Agent) run() error {
 			case messageChat:
 				a.handleChat(msg)
 
-			case *Event:
+			case *events.Event:
 				a.handleEvent(msg)
 
 			case messageStop:
@@ -457,17 +463,17 @@ func (a *Agent) run() error {
 }
 
 func (a *Agent) handleWork(m messageWork) {
-	a.taskQueue = append(a.taskQueue, &stepState{
-		Step:      m.step,
+	a.taskQueue = append(a.taskQueue, &taskState{
+		Task:      m.task,
 		Publisher: m.publisher,
-		Status:    StepStatusQueued,
+		Status:    dive.TaskStatusQueued,
 	})
 }
 
-func (a *Agent) handleEvent(event *Event) {
+func (a *Agent) handleEvent(event *events.Event) {
 	a.logger.Info("event received",
 		"agent", a.name,
-		"event", event.Name)
+		"event_type", event.Type)
 
 	// TODO: implement event triggered behaviors
 }
@@ -483,10 +489,10 @@ func (a *Agent) handleChat(m messageChat) {
 	}
 
 	var isStreaming bool
-	var publisher *stream.Publisher
+	var publisher events.Publisher
 	if m.stream != nil {
 		isStreaming = true
-		publisher = m.stream
+		publisher = m.stream.Publisher()
 		defer publisher.Close()
 	}
 
@@ -568,7 +574,7 @@ func (a *Agent) generate(
 	messages []*llm.Message,
 	systemPrompt string,
 	stepName string,
-	publisher *stream.Publisher,
+	publisher events.Publisher,
 ) (*llm.Response, []*llm.Message, error) {
 
 	// Holds the most recent response from the LLM
@@ -577,7 +583,7 @@ func (a *Agent) generate(
 	copy(updatedMessages, messages)
 
 	// Helper function to safely send events to the publisher
-	safePublish := func(event *stream.Event) error {
+	safePublish := func(event *events.Event) error {
 		if publisher == nil {
 			return nil
 		}
@@ -641,9 +647,9 @@ func (a *Agent) generate(
 				if event.Response != nil {
 					currentResponse = event.Response
 				}
-				err = safePublish(&stream.Event{
-					Type:      "llm.event",
-					StepName:  stepName,
+				err = safePublish(&events.Event{
+					Type: "llm.event",
+					// StepName:  stepName,
 					AgentName: a.name,
 					LLMEvent:  event,
 					Response:  currentResponse,
@@ -740,12 +746,12 @@ func (a *Agent) generate(
 	return response, updatedMessages, nil
 }
 
-func (a *Agent) documentStore() document.DocumentStore {
-	return a.team.DocumentStore()
+func (a *Agent) documentStore() document.Repository {
+	return a.environment.Repository()
 }
 
-func (a *Agent) getStepDocumentsMessage(ctx context.Context, step *Step) (*llm.Message, error) {
-	documents, err := a.loadStepDocuments(ctx, step)
+func (a *Agent) getTaskDocumentsMessage(ctx context.Context, task dive.Task) (*llm.Message, error) {
+	documents, err := a.loadTaskDocuments(ctx, task)
 	if err != nil {
 		return nil, err
 	}
@@ -761,51 +767,52 @@ func (a *Agent) getStepDocumentsMessage(ctx context.Context, step *Step) (*llm.M
 	return llm.NewUserMessage(strings.Join(parts, "\n\n")), nil
 }
 
-// loadStepDocuments loads the content of documents referenced by a step
-func (a *Agent) loadStepDocuments(ctx context.Context, step *workflow.Step) ([]document.Document, error) {
-	if len(step.DocumentRefs()) == 0 {
-		return nil, nil
-	}
+// loadTaskDocuments loads the content of documents referenced by a task
+func (a *Agent) loadTaskDocuments(ctx context.Context, task dive.Task) ([]document.Document, error) {
+	// if len(task.DocumentRefs()) == 0 {
+	// 	return nil, nil
+	// }
+	// var documents []document.Document
+	// for _, ref := range task.DocumentRefs() {
+	// 	var err error
+	// 	var doc document.Document
+	// 	if ref.Name != "" {
+	// 		doc, err = a.documentStore().GetDocument(ctx, ref.Name)
+	// 		if err != nil {
+	// 			return nil, fmt.Errorf("document with name %q not found", ref.Name)
+	// 		}
+	// 	} else if ref.Glob != "" {
+	// 		// Validate glob pattern can be used as path prefix
+	// 		if !strings.HasSuffix(ref.Glob, "/*") || strings.Contains(ref.Glob[:len(ref.Glob)-2], "*") {
+	// 			return nil, fmt.Errorf("invalid glob pattern %q - only trailing '/*' is supported", ref.Glob)
+	// 		}
+	// 		// Convert glob to path prefix by removing the trailing "/*"
+	// 		pathPrefix := ref.Glob[:len(ref.Glob)-2]
+	// 		docs, err := a.documentStore().ListDocuments(ctx, &document.ListDocumentInput{
+	// 			PathPrefix: pathPrefix,
+	// 		})
+	// 		if err != nil {
+	// 			return nil, fmt.Errorf("error listing documents with path prefix %q", pathPrefix)
+	// 		}
+	// 		documents = append(documents, docs.Items...)
+	// 	} else {
+	// 		return nil, fmt.Errorf("unsupported document reference: %q", ref)
+	// 	}
+	// 	documents = append(documents, doc)
+	// }
+	// if len(documents) == 0 {
+	// 	return nil, fmt.Errorf("no documents found for step %q", step.Name())
+	// }
 	var documents []document.Document
-	for _, ref := range step.DocumentRefs() {
-		var err error
-		var doc document.Document
-		if ref.Name != "" {
-			doc, err = a.documentStore().GetDocument(ctx, ref.Name)
-			if err != nil {
-				return nil, fmt.Errorf("document with name %q not found", ref.Name)
-			}
-		} else if ref.Glob != "" {
-			// Validate glob pattern can be used as path prefix
-			if !strings.HasSuffix(ref.Glob, "/*") || strings.Contains(ref.Glob[:len(ref.Glob)-2], "*") {
-				return nil, fmt.Errorf("invalid glob pattern %q - only trailing '/*' is supported", ref.Glob)
-			}
-			// Convert glob to path prefix by removing the trailing "/*"
-			pathPrefix := ref.Glob[:len(ref.Glob)-2]
-			docs, err := a.documentStore().ListDocuments(ctx, &document.ListDocumentInput{
-				PathPrefix: pathPrefix,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("error listing documents with path prefix %q", pathPrefix)
-			}
-			documents = append(documents, docs.Items...)
-		} else {
-			return nil, fmt.Errorf("unsupported document reference: %q", ref)
-		}
-		documents = append(documents, doc)
-	}
-	if len(documents) == 0 {
-		return nil, fmt.Errorf("no documents found for step %q", step.Name())
-	}
 	return documents, nil
 }
 
-func (a *Agent) handleStep(ctx context.Context, state *stepState) error {
-	step := state.Step
+func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
+	task := state.Task
 
-	timeout := step.Timeout()
+	var timeout time.Duration // := task.Timeout()
 	if timeout == 0 {
-		timeout = a.stepTimeout
+		timeout = a.taskTimeout
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -815,16 +822,16 @@ func (a *Agent) handleStep(ctx context.Context, state *stepState) error {
 
 	logger := a.logger.With(
 		"agent_name", a.name,
-		"step_name", step.Name(),
+		"task_name", task.Name(),
 		"timeout", timeout.String(),
 	)
 
-	systemPrompt, err := a.getSystemPromptForMode("step")
+	systemPrompt, err := a.getSystemPromptForMode("task")
 	if err != nil {
 		return err
 	}
 
-	documentsMessage, err := a.getStepDocumentsMessage(ctx, step)
+	documentsMessage, err := a.getTaskDocumentsMessage(ctx, task)
 	if err != nil {
 		return err
 	}
@@ -833,13 +840,15 @@ func (a *Agent) handleStep(ctx context.Context, state *stepState) error {
 
 	if len(state.Messages) == 0 {
 		// Starting a step
-		if recentStepsMessage, ok := a.getStepsHistoryMessage(); ok {
-			messages = append(messages, recentStepsMessage)
+		if recentTasksMessage, ok := a.getTasksHistoryMessage(); ok {
+			messages = append(messages, recentTasksMessage)
 		}
 		if documentsMessage != nil {
 			messages = append(messages, documentsMessage)
 		}
-		messages = append(messages, llm.NewUserMessage(step.Prompt()))
+		messages = append(messages, llm.NewUserMessage(task.Prompt(dive.TaskPromptOptions{
+			Context: "", // TODO
+		})))
 	} else {
 		// Resuming a step
 		messages = append(messages, state.Messages...)
@@ -851,10 +860,10 @@ func (a *Agent) handleStep(ctx context.Context, state *stepState) error {
 	}
 
 	logger.Info(
-		"handling step",
+		"handling task",
 		"status", state.Status,
-		"truncated_description", TruncateText(step.Description(), 10),
-		"truncated_prompt", TruncateText(step.Prompt(), 10),
+		"truncated_description", TruncateText(task.Description(), 10),
+		"truncated_prompt", TruncateText(task.Prompt(dive.TaskPromptOptions{}), 10),
 		"message_count", len(messages),
 	)
 
@@ -863,7 +872,7 @@ func (a *Agent) handleStep(ctx context.Context, state *stepState) error {
 		ctx,
 		messages,
 		systemPrompt,
-		step.Name(),
+		task.Name(),
 		state.Publisher,
 	)
 	if err != nil {
@@ -881,167 +890,167 @@ func (a *Agent) handleStep(ctx context.Context, state *stepState) error {
 func (a *Agent) doSomeWork() {
 
 	// Helper function to safely send events to the active task's publisher
-	safePublish := func(event *StreamEvent) error {
-		if a.activeStep.Publisher == nil {
+	safePublish := func(event *events.Event) error {
+		if a.activeTask.Publisher == nil {
 			return nil
 		}
-		return a.activeStep.Publisher.Send(context.Background(), event)
+		return a.activeTask.Publisher.Send(context.Background(), event)
 	}
 
 	// Activate the next task if there is one and we're idle
-	if a.activeStep == nil && len(a.taskQueue) > 0 {
+	if a.activeTask == nil && len(a.taskQueue) > 0 {
 		// Pop and activate the first task in queue
-		a.activeStep = a.taskQueue[0]
+		a.activeTask = a.taskQueue[0]
 		a.taskQueue = a.taskQueue[1:]
-		a.activeStep.Status = StepStatusActive
-		if !a.activeStep.Paused {
-			a.activeStep.Started = time.Now()
+		a.activeTask.Status = dive.TaskStatusActive
+		if !a.activeTask.Paused {
+			a.activeTask.Started = time.Now()
 		} else {
-			a.activeStep.Paused = false
+			a.activeTask.Paused = false
 		}
-		safePublish(&StreamEvent{
-			Type:      "step.activated",
-			StepName:  a.activeStep.Step.Name(),
+		safePublish(&events.Event{
+			Type:      "task.activated",
+			TaskName:  a.activeTask.Task.Name(),
 			AgentName: a.name,
 		})
-		a.logger.Debug("step activated",
+		a.logger.Debug("task activated",
 			"agent", a.name,
-			"step", a.activeStep.Step.Name(),
-			"description", a.activeStep.Step.Description(),
+			"task", a.activeTask.Task.Name(),
+			"description", a.activeTask.Task.Description(),
 		)
 	}
 
-	if a.activeStep == nil {
+	if a.activeTask == nil {
 		return // Nothing to do!
 	}
-	stepName := a.activeStep.Step.Name()
+	stepName := a.activeTask.Task.Name()
 
 	// Make progress on the active task
-	err := a.handleStep(context.Background(), a.activeStep)
+	err := a.handleTask(context.Background(), a.activeTask)
 
 	// An error deactivates the task and pushes an error event on the stream
 	if err != nil {
-		a.activeStep.Status = StepStatusError
-		a.rememberStep(a.activeStep)
-		safePublish(&StreamEvent{
-			Type:      "step.error",
-			StepName:  stepName,
+		a.activeTask.Status = dive.TaskStatusError
+		a.rememberTask(a.activeTask)
+		safePublish(&events.Event{
+			Type:      "task.error",
+			TaskName:  stepName,
 			AgentName: a.name,
 			Error:     err.Error(),
 		})
-		a.logger.Error("step error",
+		a.logger.Error("task error",
 			"agent", a.name,
-			"step", stepName,
-			"duration", time.Since(a.activeStep.Started).Seconds(),
+			"task", stepName,
+			"duration", time.Since(a.activeTask.Started).Seconds(),
 			"error", err,
 		)
-		if a.activeStep.Publisher != nil {
-			a.activeStep.Publisher.Close()
-			a.activeStep.Publisher = nil
+		if a.activeTask.Publisher != nil {
+			a.activeTask.Publisher.Close()
+			a.activeTask.Publisher = nil
 		}
-		a.activeStep = nil
+		a.activeTask = nil
 		return
 	}
 
 	// Handle task state transitions
-	switch a.activeStep.Status {
+	switch a.activeTask.Status {
 
-	case StepStatusCompleted:
-		a.rememberStep(a.activeStep)
+	case dive.TaskStatusCompleted:
+		a.rememberTask(a.activeTask)
 		a.logger.Debug("task completed",
 			"agent", a.name,
-			"step", a.activeStep.Step.Name(),
-			"duration", time.Since(a.activeStep.Started).Seconds(),
+			"task", a.activeTask.Task.Name(),
+			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		safePublish(&StreamEvent{
+		safePublish(&events.Event{
 			Type:      "step.result",
-			StepName:  stepName,
+			TaskName:  stepName,
 			AgentName: a.name,
-			StepResult: &StepResult{
-				Step:    a.activeStep.Step,
-				Usage:   a.activeStep.Usage,
-				Content: a.activeStep.LastOutput(),
+			Payload: &events.TaskResult{
+				Task:    a.activeTask.Task,
+				Usage:   a.activeTask.Usage,
+				Content: a.activeTask.LastOutput(),
 			},
 		})
-		if a.activeStep.Publisher != nil {
-			a.activeStep.Publisher.Close()
-			a.activeStep.Publisher = nil
+		if a.activeTask.Publisher != nil {
+			a.activeTask.Publisher.Close()
+			a.activeTask.Publisher = nil
 		}
-		a.activeStep = nil
+		a.activeTask = nil
 
-	case StepStatusActive:
+	case dive.TaskStatusActive:
 		a.logger.Debug("step remains active",
 			"agent", a.name,
-			"step", a.activeStep.Step.Name(),
-			"status", a.activeStep.Status,
-			"status_description", a.activeStep.StatusDescription,
-			"duration", time.Since(a.activeStep.Started).Seconds(),
+			"task", a.activeTask.Task.Name(),
+			"status", a.activeTask.Status,
+			"status_description", a.activeTask.StatusDescription,
+			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		safePublish(&StreamEvent{
+		safePublish(&events.Event{
 			Type:      "step.progress",
-			StepName:  stepName,
+			TaskName:  stepName,
 			AgentName: a.name,
 		})
 
-	case StepStatusPaused:
+	case dive.TaskStatusPaused:
 		// Set paused flag and return the task to the queue
 		a.logger.Debug("step paused",
 			"agent", a.name,
-			"step", a.activeStep.Step.Name(),
+			"task", a.activeTask.Task.Name(),
 		)
-		safePublish(&StreamEvent{
+		safePublish(&events.Event{
 			Type:      "step.paused",
-			StepName:  stepName,
+			TaskName:  stepName,
 			AgentName: a.name,
 		})
-		a.activeStep.Paused = true
-		a.taskQueue = append(a.taskQueue, a.activeStep)
-		a.activeStep = nil
+		a.activeTask.Paused = true
+		a.taskQueue = append(a.taskQueue, a.activeTask)
+		a.activeTask = nil
 
-	case StepStatusBlocked, StepStatusError, StepStatusInvalid:
-		a.logger.Warn("step error",
+	case dive.TaskStatusBlocked, dive.TaskStatusError, dive.TaskStatusInvalid:
+		a.logger.Warn("task error",
 			"agent", a.name,
-			"step", a.activeStep.Step.Name(),
-			"status", a.activeStep.Status,
-			"status_description", a.activeStep.StatusDescription,
-			"duration", time.Since(a.activeStep.Started).Seconds(),
+			"task", a.activeTask.Task.Name(),
+			"status", a.activeTask.Status,
+			"status_description", a.activeTask.StatusDescription,
+			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		safePublish(&StreamEvent{
-			Type:      "step.error",
-			StepName:  stepName,
+		safePublish(&events.Event{
+			Type:      "task.error",
+			TaskName:  stepName,
 			AgentName: a.name,
-			Error:     fmt.Sprintf("step status: %s", a.activeStep.Status),
+			Error:     fmt.Sprintf("task status: %s", a.activeTask.Status),
 		})
-		if a.activeStep.Publisher != nil {
-			a.activeStep.Publisher.Close()
-			a.activeStep.Publisher = nil
+		if a.activeTask.Publisher != nil {
+			a.activeTask.Publisher.Close()
+			a.activeTask.Publisher = nil
 		}
-		a.activeStep = nil
+		a.activeTask = nil
 	}
 }
 
 // Remember the last 10 tasks that were worked on, so that the agent can use
 // them as context for future tasks.
-func (a *Agent) rememberStep(step *stepState) {
-	a.recentSteps = append(a.recentSteps, step)
-	if len(a.recentSteps) > 10 {
-		a.recentSteps = a.recentSteps[1:]
+func (a *Agent) rememberTask(task *taskState) {
+	a.recentTasks = append(a.recentTasks, task)
+	if len(a.recentTasks) > 10 {
+		a.recentTasks = a.recentTasks[1:]
 	}
 }
 
 // Returns a block of text that summarizes the most recent tasks worked on by
 // the agent. The text is truncated if needed to avoid using a lot of tokens.
-func (a *Agent) getStepsHistory() string {
-	if len(a.recentSteps) == 0 {
+func (a *Agent) getTasksHistory() string {
+	if len(a.recentTasks) == 0 {
 		return ""
 	}
-	history := make([]string, len(a.recentSteps))
-	for i, status := range a.recentSteps {
-		title := status.Step.Name()
+	history := make([]string, len(a.recentTasks))
+	for i, status := range a.recentTasks {
+		title := status.Task.Name()
 		if title == "" {
-			title = status.Step.Description()
+			title = status.Task.Description()
 		}
-		history[i] = fmt.Sprintf("- step: %q status: %q output: %q\n",
+		history[i] = fmt.Sprintf("- task: %q status: %q output: %q\n",
 			TruncateText(title, 8),
 			status.Status,
 			TruncateText(replaceNewlines(status.LastOutput()), 8),
@@ -1056,12 +1065,12 @@ func (a *Agent) getStepsHistory() string {
 
 // Returns a user message that contains a summary of the most recent tasks
 // worked on by the agent.
-func (a *Agent) getStepsHistoryMessage() (*llm.Message, bool) {
-	history := a.getStepsHistory()
+func (a *Agent) getTasksHistoryMessage() (*llm.Message, bool) {
+	history := a.getTasksHistory()
 	if history == "" {
 		return nil, false
 	}
-	text := fmt.Sprintf("Recently completed steps:\n\n%s", history)
+	text := fmt.Sprintf("Recently completed tasks:\n\n%s", history)
 	return llm.NewUserMessage(text), true
 }
 

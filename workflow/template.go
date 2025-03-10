@@ -13,10 +13,6 @@ var (
 
 func init() {
 	var err error
-	taskStatePromptTemplate, err = parseTemplate("step_state_prompt", stepStatePromptText)
-	if err != nil {
-		panic(err)
-	}
 	teamPromptTemplate, err = parseTemplate("team_prompt", teamPromptText)
 	if err != nil {
 		panic(err)
@@ -47,27 +43,3 @@ The team consists of the following agents:
 {{ range $i, $agent := .Agents }}
 - Name: {{ $agent.Name }}, Description: "{{ $agent.Description }}"
 {{- end }}`
-
-var stepStatePromptText = `# Step State
-
-The step is described as: "{{ .Step.Description }}"
-
-The step has the following dependencies:
-{{- range .Step.Dependencies }}
-- {{ .Name }}
-{{- end }}
-
-# Current State
-{{- if .Output }}
-
-Prior Thinking:
-{{ .Reasoning }}
-{{- end }}
-{{- if .Status }}
-
-Prior Output:
-{{ .Output }}
-{{- end }}
-
-Last Reported Status:
-{{ .ReportedStatus }}`

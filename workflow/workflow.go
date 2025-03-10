@@ -4,472 +4,284 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/document"
+	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/slogger"
-	"github.com/getstingrai/dive/stream"
 )
 
-type DiveTeam struct {
-	name         string
-	description  string
-	agents       []dive.Agent
-	supervisors  []dive.Agent
-	running      bool
-	initialTasks []*Task
-	outputDir    string
-	outputPlugin OutputPlugin
-	documents    DocumentStore
-	logLevel     string
-	logger       slogger.Logger
-	mutex        sync.Mutex
+// Workflow represents a template for a repeatable process
+type Workflow struct {
+	name         string                         // Name of the workflow
+	description  string                         // Description of what the workflow does
+	tasks        []*Task                        // Tasks that make up the workflow
+	inputs       map[string]dive.WorkflowInput  // Expected input parameters
+	outputs      map[string]dive.WorkflowOutput // Expected output parameters
+	triggers     []Trigger                      // Events that can trigger this workflow
+	metadata     map[string]string              // Additional metadata about the workflow
+	agents       []dive.Agent                   // Agents available to execute tasks
+	documents    document.Repository            // Document repository for the workflow
+	logger       slogger.Logger                 // Logger for workflow operations
+	outputDir    string                         // Directory for workflow outputs
+	outputPlugin dive.OutputPlugin              // Plugin for handling task outputs
 }
 
-// TeamOptions are used to configure a new team.
-type TeamOptions struct {
+// Input defines an expected input parameter for a workflow
+type Input struct {
+	Name        string
+	Type        string
+	Description string
+	Required    bool
+	Default     interface{}
+}
+
+// Output defines an expected output parameter from a workflow
+type Output struct {
+	Name        string
+	Type        string
+	Description string
+}
+
+// Trigger defines an event that can start a workflow
+type Trigger struct {
+	Type        string                 // Type of trigger (schedule, event, etc)
+	Config      map[string]interface{} // Configuration for the trigger
+	Description string                 // Description of when/why this trigger fires
+}
+
+// WorkflowOptions configures a new workflow
+type WorkflowOptions struct {
 	Name         string
 	Description  string
 	Agents       []dive.Agent
-	Tasks        []*Task
 	Repository   document.Repository
-	LogLevel     string
 	Logger       slogger.Logger
 	OutputDir    string
 	OutputPlugin dive.OutputPlugin
 }
 
-// NewTeam creates a new team composed of the given agents.
-func NewTeam(opts TeamOptions) (*DiveTeam, error) {
+// NewWorkflow creates a new workflow
+func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
+	if opts.Name == "" {
+		return nil, fmt.Errorf("workflow name required")
+	}
+	if len(opts.Agents) == 0 {
+		return nil, fmt.Errorf("at least one agent required")
+	}
+	if opts.Repository == nil {
+		return nil, fmt.Errorf("document repository required")
+	}
 	if opts.Logger == nil {
-		opts.Logger = dive.DefaultLogger
+		opts.Logger = slogger.NewDevNullLogger()
 	}
-	if opts.OutputPlugin == nil {
-		if opts.OutputDir == "" {
-			opts.OutputPlugin = NewInMemoryOutputPlugin()
-		} else {
-			var err error
-			opts.OutputPlugin, err = NewDiskOutputPlugin(opts.OutputDir)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create disk output plugin: %w", err)
-			}
-		}
-	}
-	t := &DiveTeam{
+
+	return &Workflow{
 		name:         opts.Name,
 		description:  opts.Description,
 		agents:       opts.Agents,
-		initialTasks: opts.Tasks,
-		logLevel:     opts.LogLevel,
+		documents:    opts.Repository,
 		logger:       opts.Logger,
 		outputDir:    opts.OutputDir,
 		outputPlugin: opts.OutputPlugin,
-		documents:    opts.Repository,
-	}
-	for _, task := range opts.Tasks {
-		if err := task.Validate(); err != nil {
-			return nil, err
-		}
-	}
-	if len(t.agents) == 0 {
-		return nil, fmt.Errorf("at least one agent is required")
-	}
-	for _, agent := range t.agents {
-		if name := agent.Name(); name == "" {
-			return nil, fmt.Errorf("agent has no name")
-		}
-		if teamAgent, ok := agent.(dive.TeamAgent); ok {
-			if err := teamAgent.Join(t); err != nil {
-				return nil, err
-			}
-			if teamAgent.IsSupervisor() {
-				t.supervisors = append(t.supervisors, agent)
-			}
-		}
-	}
-	if len(t.agents) > 1 && len(t.supervisors) == 0 {
-		return nil, fmt.Errorf("at least one supervisor is required")
-	}
-	t.logger.Info("team created",
-		"output_plugin", t.outputPlugin.Name())
-	return t, nil
+		inputs:       make(map[string]dive.WorkflowInput),
+		outputs:      make(map[string]dive.WorkflowOutput),
+		metadata:     make(map[string]string),
+	}, nil
 }
 
-// Description of the team.
-func (t *DiveTeam) Description() string {
-	return t.description
-}
-
-// Agents returns a copy of the agents in the team.
-func (t *DiveTeam) Agents() []dive.Agent {
-	// Make a copy to help ensure immutability on the set
-	agents := make([]dive.Agent, len(t.agents))
-	copy(agents, t.agents)
-	return agents
-}
-
-// Name returns the name of the team.
-func (t *DiveTeam) Name() string {
-	return t.name
-}
-
-// Repository returns the repository for the team.
-func (t *DiveTeam) Repository() document.Repository {
-	return t.documents
-}
-
-// IsRunning returns true if the team is active.
-func (t *DiveTeam) IsRunning() bool {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	return t.running
-}
-
-// Start all agents belonging to the team.
-func (t *DiveTeam) Start(ctx context.Context) error {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	if err := t.start(ctx); err != nil {
-		t.logger.Error("failed to start team", "error", err)
-		return err
-	}
-	return nil
-}
-
-// Start all agents on the team. Call only when the team mutex is held.
-func (t *DiveTeam) start(ctx context.Context) error {
-	if len(t.agents) == 0 {
-		return fmt.Errorf("no agents to start")
-	}
-	if t.running {
-		return fmt.Errorf("team already running")
+// Execute runs the workflow with the given inputs
+func (w *Workflow) Execute(ctx context.Context, inputs map[string]interface{}) (events.Stream, error) {
+	// Validate inputs against workflow.inputs requirements
+	if err := w.validateInputs(inputs); err != nil {
+		return nil, fmt.Errorf("invalid inputs: %w", err)
 	}
 
-	// Start all agents, but if any fail, stop them all before returning the error
-	var startedAgents []dive.RunnableAgent
-	for _, agent := range t.agents {
-		runnableAgent, ok := agent.(dive.RunnableAgent)
-		if !ok {
-			continue
-		}
-		if err := runnableAgent.Start(ctx); err != nil {
-			for _, startedAgent := range startedAgents {
-				startedAgent.Stop(ctx)
-			}
-			return fmt.Errorf("failed to start agent %q: %w", agent.Name(), err)
-		}
-		startedAgents = append(startedAgents, runnableAgent)
-	}
-
-	t.logger.Debug("team started",
-		"team_name", t.name,
-		"team_description", t.description,
-		"agent_count", len(t.agents),
-		"agent_names", AgentNames(t.agents),
-	)
-	t.running = true
-	return nil
-}
-
-// Stop all agents belonging to the team.
-func (t *DiveTeam) Stop(ctx context.Context) error {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	if !t.running {
-		return fmt.Errorf("team not running")
-	}
-	t.running = false
-
-	var lastErr error
-	for _, agent := range t.agents {
-		runnableAgent, ok := agent.(dive.RunnableAgent)
-		if !ok {
-			continue
-		}
-		if err := runnableAgent.Stop(ctx); err != nil {
-			lastErr = fmt.Errorf("failed to stop agent %s: %w", agent.Name(), err)
-		}
-	}
-
-	t.logger.Debug("team stopped", "team_name", t.name)
-	return lastErr
-}
-
-// Work on one or more tasks. The returned stream will deliver events and
-// results to the caller as progress is made. This batch of work is considered
-// independent of any other work the team may be doing. If the team has not yet
-// started, it is automatically started.
-func (t *DiveTeam) Work(ctx context.Context, tasks ...*Task) (*stream.Stream, error) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	var todo []*Task
-
-	// Automatically start as needed
-	if !t.running {
-		if err := t.start(ctx); err != nil {
-			return nil, err
-		}
-	}
-	// Any initial tasks are enqueued first
-	if len(t.initialTasks) > 0 {
-		todo = append(todo, t.initialTasks...)
-		t.initialTasks = nil
-	}
-	// Add any tasks provided by the caller
-	if len(tasks) > 0 {
-		todo = append(todo, tasks...)
-	}
-	// Make sure we have something to do
-	if len(todo) == 0 {
-		return nil, fmt.Errorf("no tasks to work on")
-	}
-
-	// Validate and index tasks by name
-	tasksByName := make(map[string]dive.Task, len(todo))
-	for _, task := range todo {
-		if err := task.Validate(); err != nil {
-			return nil, err
-		}
-		name := task.Name()
-		if tasksByName[name] != nil {
-			return nil, fmt.Errorf("duplicate task name: %q", name)
-		}
-		tasksByName[name] = task
-	}
-
-	// Sort steps into execution order
-	orderedNames, err := OrderTasks(todo)
+	// Sort tasks into execution order
+	orderedNames, err := orderTasks(w.tasks)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine task execution order: %w", err)
 	}
-	var orderedTasks []dive.Task
-	for _, taskName := range orderedNames {
-		orderedTasks = append(orderedTasks, tasksByName[taskName])
+
+	// Convert ordered names back to tasks
+	tasksByName := make(map[string]*Task)
+	for _, task := range w.tasks {
+		tasksByName[task.Name()] = task
+	}
+	var orderedTasks []*Task
+	for _, name := range orderedNames {
+		orderedTasks = append(orderedTasks, tasksByName[name])
 	}
 
-	// This stream will be used to deliver events and results to the caller
-	stream := stream.New()
+	// Create stream for workflow events
+	stream := events.NewStream()
 
-	// Run work and process events in a separate goroutine
-	go t.workOnTasks(ctx, orderedTasks, stream)
+	// Run workflow execution in background
+	go w.executeWorkflow(ctx, orderedTasks, inputs, stream)
 
 	return stream, nil
 }
 
-func (t *DiveTeam) workOnTasks(ctx context.Context, tasks []*Task, s *stream.Stream) {
-	publisher := stream.NewPublisher(s)
+func (w *Workflow) executeWorkflow(ctx context.Context, tasks []*Task, inputs map[string]interface{}, s events.Stream) {
+	publisher := s.Publisher()
 	defer publisher.Close()
 
 	backgroundCtx := context.Background()
+	totalUsage := llm.Usage{}
 
-	t.logger.Debug("team work started",
-		"team_name", t.name,
+	w.logger.Debug("workflow execution started",
+		"workflow_name", w.name,
 		"task_count", len(tasks),
 		"task_names", TaskNames(tasks),
 	)
 
-	totalUsage := llm.Usage{}
-
-	// Work on tasks sequentially
+	// Execute tasks sequentially
 	for _, task := range tasks {
-
 		// Determine which agent should take the task
 		var agent dive.Agent
 		if task.AssignedAgent() != nil {
 			agent = task.AssignedAgent()
-		} else if len(t.supervisors) > 0 {
-			agent = t.supervisors[0]
 		} else {
-			agent = t.agents[0]
+			agent = w.agents[0] // Default to first agent if none assigned
 		}
 
-		// Capture the output of any dependencies and store on the task
-		if dependencies := task.Dependencies(); len(dependencies) > 0 {
-			var outputs []string
-			for _, dep := range dependencies {
-				depResult, err := t.outputPlugin.ReadOutput(ctx, dep, "")
-				if err != nil {
-					// This should never happen since the tasks were sorted into
-					// execution order! If it does, it indicates a severe bug so
-					// a panic is appropriate.
-					panic(fmt.Sprintf("task execution failure: task %q dependency %q", task.Name(), dep))
-				}
-				outputs = append(outputs, fmt.Sprintf("<output task=%q>\n%s\n</output>", dep, depResult))
-			}
-			task.SetDependenciesOutput(strings.Join(outputs, "\n\n"))
-		}
-
-		// Has this work already been done?
-		done, err := t.outputPlugin.OutputExists(ctx, task.Name(), "")
+		// Check if task output already exists
+		done, err := w.outputPlugin.OutputExists(ctx, task.Name(), "")
 		if err != nil {
-			t.logger.Error("failed to check if task output exists", "error", err)
+			w.logger.Error("failed to check if task output exists", "error", err)
 		}
+
 		if !done {
-			// Work the step to completion
-			result, err := t.workOnTask(ctx, task, agent, publisher)
+			// Execute the task
+			result, err := w.executeTask(ctx, task, agent, inputs, publisher)
 			if err != nil {
-				publisher.Send(backgroundCtx, &stream.Event{
-					Type:      "work.error",
+				publisher.Send(backgroundCtx, &events.Event{
+					Type:      "workflow.error",
 					TaskName:  task.Name(),
 					AgentName: agent.Name(),
-					Error:     fmt.Sprintf("work failed on task %q agent %q: %v", task.Name(), agent.Name(), err),
+					Error:     err.Error(),
 				})
 				return
 			}
-			// Store the step results
-			if err := t.outputPlugin.WriteOutput(ctx, task.Name(), "", result.Content); err != nil {
-				publisher.Send(backgroundCtx, &stream.Event{
-					Type:      "work.error",
+
+			// Store task results
+			if err := w.outputPlugin.WriteOutput(ctx, task.Name(), "", result.Content); err != nil {
+				publisher.Send(backgroundCtx, &events.Event{
+					Type:      "workflow.error",
 					TaskName:  task.Name(),
 					AgentName: agent.Name(),
-					Error:     fmt.Sprintf("failed to write output for task %q: %v", task.Name(), err),
+					Error:     err.Error(),
 				})
 				return
 			}
-			totalUsage.InputTokens += result.Usage.InputTokens
-			totalUsage.OutputTokens += result.Usage.OutputTokens
-			totalUsage.CacheCreationInputTokens += result.Usage.CacheCreationInputTokens
-			totalUsage.CacheReadInputTokens += result.Usage.CacheReadInputTokens
-		} else {
-			t.logger.Info("task output already exists - skipping", "task_name", task.Name())
+
+			// totalUsage.Add(result.Usage)
 		}
 	}
 
-	t.logger.Info("team work completed",
-		"team_name", t.name,
-		"total_input_tokens", totalUsage.InputTokens,
-		"total_output_tokens", totalUsage.OutputTokens,
-		"total_cache_creation_input_tokens", totalUsage.CacheCreationInputTokens,
-		"total_cache_read_input_tokens", totalUsage.CacheReadInputTokens,
+	w.logger.Info("workflow execution completed",
+		"workflow_name", w.name,
+		"total_usage", totalUsage,
 	)
 
-	// Send a final event indicating all work is done. Use a clean context since
-	// the provided context may have been canceled.
-	publisher.Send(backgroundCtx, &stream.Event{Type: "work.done"})
+	publisher.Send(backgroundCtx, &events.Event{Type: "workflow.done"})
 }
 
-func (t *DiveTeam) workOnTask(ctx context.Context, task *Task, agent dive.Agent, pub *stream.Publisher) (*TaskResult, error) {
-	workerAgent, ok := agent.(dive.TeamAgent)
-	if !ok {
-		return nil, fmt.Errorf("agent %q does not accept tasks", agent.Name())
-	}
-
-	stream, err := workerAgent.Work(ctx, task)
-	if err != nil {
-		return nil, err
-	}
-	defer stream.Close()
-
-	logger := t.logger.With(
-		"task_name", task.Name(),
-		"agent_name", agent.Name(),
-	)
-	logger.Info("assigned task")
-
-	// Heartbeats will indicate to the client that we're still going
-	heartbeatTicker := time.NewTicker(time.Second * 3)
-	defer heartbeatTicker.Stop()
-
-	// Process all events from the task stream. Return when a task result is
-	// found or the context is canceled. The worker handles the task timeouts.
-	done := false
-	for !done {
-		select {
-		// Forward all events via the publisher
-		case event, ok := <-stream.Channel():
-			if !ok {
-				done = true
-				continue
-			}
-			if err := pub.Send(ctx, event); err != nil {
-				return nil, err // Canceled context probably
-			}
-			if event.Error != "" {
-				logger.Error("task failed", "error", event.Error)
-				return nil, errors.New(event.Error)
-			}
-			if event.StepResult != nil {
-				logger.Info("step completed")
-				return event.StepResult, nil
-			}
-
-		// Send heartbeats periodically
-		case <-heartbeatTicker.C:
-			pub.Send(ctx, &stream.Event{
-				Type:      "task.heartbeat",
-				TaskName:  task.Name(),
-				AgentName: agent.Name(),
-			})
-
-		// Abort if the context is canceled
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	// Reaching this point may indicate a bug since a task result should have
-	// been returned, even if it failed. Return an error in any case.
-	return nil, fmt.Errorf("task %q did not return a result", task.Name())
+func (w *Workflow) executeTask(
+	ctx context.Context,
+	task *Task,
+	agent dive.Agent,
+	inputs map[string]interface{},
+	publisher events.Publisher,
+) (*dive.TaskResult, error) {
+	return nil, errors.New("not implemented")
 }
 
-// GetAgent returns the agent with the given name
-func (t *DiveTeam) GetAgent(name string) (Agent, bool) {
-	for _, agent := range t.agents {
-		if agent.Name() == name {
-			return agent, true
-		}
+func (w *Workflow) AddTask(task *Task) error {
+	if task == nil {
+		return fmt.Errorf("task cannot be nil")
 	}
-	return nil, false
+	if err := task.Validate(); err != nil {
+		return fmt.Errorf("invalid task: %w", err)
+	}
+	w.tasks = append(w.tasks, task)
+	return nil
 }
 
-// Overview returns a string representation of the team, which can be included
-// in agent prompts to help them understand the team's capabilities.
-func (t *DiveTeam) Overview() (string, error) {
-	return executeTemplate(teamPromptTemplate, t)
+func (w *Workflow) AddInput(input dive.WorkflowInput) error {
+	if input.Name == "" {
+		return fmt.Errorf("input name required")
+	}
+	w.inputs[input.Name] = input
+	return nil
 }
 
-// HandleEvent passes an event to any agents that accept it.
-func (t *DiveTeam) HandleEvent(ctx context.Context, event *Event) error {
-	for _, agent := range t.agents {
-		eventedAgent, ok := agent.(EventHandlerAgent)
-		if !ok {
-			continue
+func (w *Workflow) AddOutput(output dive.WorkflowOutput) error {
+	if output.Name == "" {
+		return fmt.Errorf("output name required")
+	}
+	w.outputs[output.Name] = output
+	return nil
+}
+
+func (w *Workflow) validateInputs(inputs map[string]interface{}) error {
+	for name, input := range w.inputs {
+		if input.Required {
+			if _, exists := inputs[name]; !exists {
+				return fmt.Errorf("required input %q missing", name)
+			}
 		}
-		acceptedEvents := eventedAgent.AcceptedEvents()
-		if !sliceContains(acceptedEvents, "*") && !sliceContains(acceptedEvents, event.Name) {
-			continue
-		}
-		if err := eventedAgent.HandleEvent(ctx, event); err != nil {
-			return err
-		}
-		t.logger.Debug("passed event to agent",
-			"event_name", event.Name,
-			"agent_name", agent.Name(),
-		)
 	}
 	return nil
 }
 
-func AgentNames(agents []dive.Agent) []string {
-	var agentNames []string
-	for _, agent := range agents {
-		agentNames = append(agentNames, agent.Name())
-	}
-	return agentNames
+func (w *Workflow) Name() string {
+	return w.name
 }
 
-func TaskNames(tasks []*Task) []string {
-	var taskNames []string
-	for _, task := range tasks {
-		taskNames = append(taskNames, task.Name())
+func (w *Workflow) Description() string {
+	return w.description
+}
+
+func (w *Workflow) Inputs() map[string]dive.WorkflowInput {
+	return w.inputs
+}
+
+func (w *Workflow) Outputs() map[string]dive.WorkflowOutput {
+	return w.outputs
+}
+
+func (w *Workflow) Tasks() []dive.Task {
+	tasks := make([]dive.Task, len(w.tasks))
+	for i, task := range w.tasks {
+		tasks[i] = task
 	}
-	return taskNames
+	return tasks
+}
+
+// Validate checks if the workflow is properly configured
+func (w *Workflow) Validate() error {
+	if w.name == "" {
+		return fmt.Errorf("workflow name required")
+	}
+	if w.description == "" {
+		return fmt.Errorf("workflow description required")
+	}
+	if len(w.tasks) == 0 {
+		return fmt.Errorf("workflow must have at least one task")
+	}
+	// Validate task dependencies
+	taskNames := make(map[string]bool)
+	for _, task := range w.tasks {
+		taskNames[task.Name()] = true
+	}
+	for _, task := range w.tasks {
+		for _, dep := range task.Dependencies() {
+			if !taskNames[dep] {
+				return fmt.Errorf("task %q depends on unknown task %q", task.Name(), dep)
+			}
+		}
+	}
+	return nil
 }

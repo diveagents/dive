@@ -4,8 +4,13 @@ import (
 	"context"
 
 	"github.com/getstingrai/dive/document"
+	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
-	"github.com/getstingrai/dive/stream"
+	"github.com/getstingrai/dive/slogger"
+)
+
+var (
+	DefaultLogger = slogger.NewDevNullLogger()
 )
 
 // OutputFormat defines the format of task results
@@ -29,101 +34,114 @@ const (
 	TaskStatusInvalid   TaskStatus = "invalid"
 )
 
+// Workflow represents a template for a repeatable process
 type Workflow interface {
-	// Name of the team
+	// Name returns the workflow name
 	Name() string
 
-	// Description of the team
+	// Description returns the workflow description
 	Description() string
 
-	// Overview of the team
-	Overview() (string, error)
+	// Tasks returns the tasks that make up the workflow
+	Tasks() []Task
 
-	// Agents belonging to the team
-	Agents() []Agent
+	// Inputs returns the expected input parameters
+	Inputs() map[string]WorkflowInput
 
-	// GetAgent returns an agent by name
-	GetAgent(name string) (Agent, bool)
+	// Outputs returns the expected output parameters
+	Outputs() map[string]WorkflowOutput
 
-	// HandleEvent passes an event to the team
-	HandleEvent(ctx context.Context, event *stream.Event) error
-
-	// Work on one or more tasks. The returned stream can be read from
-	// asynchronously to receive events and task results.
-	Work(ctx context.Context, tasks ...Task) (*stream.Stream, error)
-
-	// Start all agents belonging to the team
-	Start(ctx context.Context) error
-
-	// Stop all agents belonging to the team
-	Stop(ctx context.Context) error
-
-	// IsRunning returns true if the team is running
-	IsRunning() bool
-
-	// DocumentStore returns the document store for the team
-	DocumentStore() document.Repository
+	// Validate checks if the workflow is properly configured
+	Validate() error
 }
 
-type generateOptions struct {
-	ThreadID string
-	UserID   string
+// WorkflowInput defines an expected input parameter
+type WorkflowInput struct {
+	Name        string
+	Type        string
+	Description string
+	Required    bool
+	Default     interface{}
 }
 
-type GenerateOption func(*generateOptions)
-
-func WithThreadID(threadID string) GenerateOption {
-	return func(opts *generateOptions) {
-		opts.ThreadID = threadID
-	}
+// WorkflowOutput defines an expected output parameter
+type WorkflowOutput struct {
+	Name        string
+	Type        string
+	Description string
 }
 
-func WithUserID(userID string) GenerateOption {
-	return func(opts *generateOptions) {
-		opts.UserID = userID
-	}
+type TaskPromptOptions struct {
+	Context string
 }
 
-// Agent is an entity that can perform tasks and interact with the world
+// Task represents a unit of work that can be executed
+type Task interface {
+	// Name returns the name of the task
+	Name() string
+
+	// Description returns the description of the task
+	Description() string
+
+	// ExpectedOutput returns what output is expected from this task
+	ExpectedOutput() string
+
+	// Dependencies returns the names of tasks that must be completed before this one
+	Dependencies() []string
+
+	// AssignedAgent returns the agent assigned to this task, if any
+	AssignedAgent() Agent
+
+	// Validate checks if the task is properly configured
+	Validate() error
+
+	// Execute runs the task and returns its result
+	// Execute(ctx context.Context) (*TaskResult, error)
+
+	// Prompt returns the prompt for the task
+	Prompt(opts TaskPromptOptions) string
+}
+
+// TaskResult holds the output of a completed task
+type TaskResult struct {
+	// Task is the task that was executed
+	Task Task
+
+	// Content contains the raw output
+	Content string
+
+	// Format specifies how to interpret the content
+	Format OutputFormat
+
+	// Object holds parsed JSON output if applicable
+	Object interface{}
+
+	// Error is set if task execution failed
+	Error error
+
+	// Usage tracks LLM token usage
+	Usage llm.Usage
+}
+
+// Agent represents an AI agent that can perform tasks
 type Agent interface {
-	// Name of the agent
+	// Name returns the agent's name
 	Name() string
 
-	// Description of the agent
+	// Description returns the agent's description
 	Description() string
 
-	// Instructions for the agent
+	// Instructions returns the agent's base instructions
 	Instructions() string
-
-	// Fingerprint of the agent captures the current state of the agent
-	Fingerprint() string
-
-	// Generate a response from the agent
-	Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error)
-
-	// Stream a response from the agent
-	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*stream.Stream, error)
-}
-
-// TeamAgent is an Agent that can join a team and work on tasks
-type TeamAgent interface {
-	Agent
-
-	// Team the agent belongs to
-	Team() Workflow
-
-	// Join a team. This is only valid if the agent is not yet running and is
-	// not yet a member of any team.
-	Join(team Workflow) error
 
 	// IsSupervisor returns true if the agent is a supervisor
 	IsSupervisor() bool
 
-	// Subordinates returns the names of the agents that the agent can supervise
+	// Subordinates returns names of agents this one can supervise
 	Subordinates() []string
 
-	// Work gives the agent a task to complete and returns a stream of events
-	Work(ctx context.Context, task Task) (*stream.Stream, error)
+	// Work gives the agent a task to complete
+	Work(ctx context.Context, task Task) (events.Stream, error)
 }
 
 // RunnableAgent is an Agent that can be started and stopped
@@ -148,26 +166,38 @@ type EventHandlerAgent interface {
 	AcceptedEvents() []string
 
 	// HandleEvent passes an event to the event handler
-	HandleEvent(ctx context.Context, event *Event) error
+	HandleEvent(ctx context.Context, event *events.Event) error
 }
 
-// Task represents a unit of work that can be executed by an agent
-type Task interface {
-	// Name returns the name of the task
+// Environment represents a running instance of a project
+type Environment interface {
+	// Name returns the environment name (e.g. "production", "staging")
 	Name() string
 
-	// Description returns the description of the task
+	// Description returns details about this environment
 	Description() string
 
-	// ExpectedOutput returns what output is expected from this task
-	ExpectedOutput() string
+	// Repository returns the document repository for this environment
+	Repository() document.Repository
 
-	// Dependencies returns the names of tasks that must be completed before this one
-	Dependencies() []string
+	// Agents returns all agents registered in this environment
+	Agents() []Agent
 
-	// AssignedAgent returns the agent assigned to this task, if any
-	AssignedAgent() Agent
+	// GetAgent looks up an agent by name
+	GetAgent(name string) (Agent, error)
 
-	// Validate checks if the task is properly configured
-	Validate() error
+	// RegisterAgent adds an agent to this environment
+	RegisterAgent(agent Agent) error
+
+	// Workflows returns all active workflow executions
+	Workflows() []Workflow
+
+	// GetWorkflow looks up a workflow by ID
+	GetWorkflow(id string) (Workflow, error)
+
+	// StartWorkflow begins execution of a workflow
+	StartWorkflow(ctx context.Context, workflow Workflow) error
+
+	// StopWorkflow halts execution of a workflow
+	StopWorkflow(ctx context.Context, id string) error
 }

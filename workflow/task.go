@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -38,7 +39,7 @@ type Task struct {
 	dependencies   []string
 	documentRefs   []document.DocumentRef
 	outputFile     string
-	result         *TaskResult
+	result         *dive.TaskResult
 	timeout        time.Duration
 	context        string
 	depOutput      string
@@ -77,15 +78,49 @@ func (t *Task) AssignedAgent() dive.Agent            { return t.assignedAgent }
 func (t *Task) Dependencies() []string               { return t.dependencies }
 func (t *Task) DocumentRefs() []document.DocumentRef { return t.documentRefs }
 func (t *Task) OutputFile() string                   { return t.outputFile }
-func (t *Task) Result() *TaskResult                  { return t.result }
+func (t *Task) Result() *dive.TaskResult             { return t.result }
 func (t *Task) Timeout() time.Duration               { return t.timeout }
 func (t *Task) Context() string                      { return t.context }
 func (t *Task) DependenciesOutput() string           { return t.depOutput }
 
 func (t *Task) SetContext(ctx string)               { t.context = ctx }
 func (t *Task) SetDependenciesOutput(output string) { t.depOutput = output }
-func (t *Task) SetResult(result *TaskResult)        { t.result = result }
+func (t *Task) SetResult(result *dive.TaskResult)   { t.result = result }
 func (t *Task) SetAssignedAgent(agent dive.Agent)   { t.assignedAgent = agent }
+
+// Execute runs the task and returns its result
+func (t *Task) Execute(ctx context.Context) (*dive.TaskResult, error) {
+	if t.assignedAgent == nil {
+		return nil, fmt.Errorf("no agent assigned to task %q", t.name)
+	}
+	agent := t.assignedAgent
+	stream, err := agent.Work(ctx, t)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start task %q: %w", t.name, err)
+	}
+	defer stream.Close()
+
+	// Wait for the result or an error
+	for {
+		select {
+		case event, ok := <-stream.Channel():
+			if !ok {
+				return nil, fmt.Errorf("task %q stream closed without result", t.name)
+			}
+			if event.Error != "" {
+				return nil, fmt.Errorf("task %q failed: %s", t.name, event.Error)
+			}
+			switch payload := event.Payload.(type) {
+			case *dive.TaskResult:
+				return payload, nil
+			default:
+				return nil, fmt.Errorf("unexpected payload type: %T", payload)
+			}
+		case <-ctx.Done():
+			return nil, fmt.Errorf("task %q timed out: %w", t.name, ctx.Err())
+		}
+	}
+}
 
 // Validate checks if the task is properly configured
 func (t *Task) Validate() error {
@@ -111,16 +146,8 @@ func (t *Task) Validate() error {
 	return nil
 }
 
-type TaskPromptOptions struct {
-	Context string
-}
-
 // Prompt returns the LLM prompt for the task
-func (t *Task) Prompt(opts ...*TaskPromptOptions) string {
-	var options *TaskPromptOptions
-	if len(opts) > 0 {
-		options = opts[0]
-	}
+func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 	var intro string
 	if t.name != "" && !t.nameIsRandom {
 		intro = fmt.Sprintf("Let's work on a new task named %q.", t.name)
@@ -144,8 +171,8 @@ func (t *Task) Prompt(opts ...*TaskPromptOptions) string {
 	if t.context != "" {
 		contextParts = append(contextParts, t.context)
 	}
-	if options != nil && options.Context != "" {
-		contextParts = append(contextParts, options.Context)
+	if opts.Context != "" {
+		contextParts = append(contextParts, opts.Context)
 	}
 	if len(contextParts) > 0 {
 		contextHeading := "Use this context while working on the task:"

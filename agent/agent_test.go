@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/stretchr/testify/require"
@@ -118,14 +120,14 @@ func TestAgentStep(t *testing.T) {
 	require.NoError(t, err)
 	defer agent.Stop(ctx)
 
-	stream, err := agent.Work(ctx, NewStep(StepOptions{
-		Name:           "Poem",
-		Description:    "Write a cat poem",
-		ExpectedOutput: "A short poem about a cat",
-	}))
+	stream, err := agent.Work(ctx, &SimpleTask{
+		name:           "Poem",
+		description:    "Write a cat poem",
+		expectedOutput: "A short poem about a cat",
+	})
 	require.NoError(t, err)
 
-	var result *StepResult
+	var result *dive.TaskResult
 	running := true
 	for running {
 		select {
@@ -134,10 +136,17 @@ func TestAgentStep(t *testing.T) {
 			if event == nil {
 				t.Fatal("received nil event from stream")
 			}
-			if event.StepResult != nil {
-				result = event.StepResult
+			switch payload := event.Payload.(type) {
+			case *dive.TaskResult:
+				result = payload
 				running = false
-			} else if event.Error != "" {
+			case string:
+				result = &dive.TaskResult{Content: payload}
+				running = false
+			default:
+				t.Fatal("received unexpected payload type from stream:", reflect.TypeOf(payload))
+			}
+			if event.Error != "" {
 				t.Fatal("received error event from stream:", event.Error)
 			}
 		case <-ctx.Done():
@@ -212,51 +221,6 @@ func TestAgentSystemPromptWithoutTeam(t *testing.T) {
 			require.Equal(t, string(expected), systemPrompt)
 		})
 	}
-}
-
-func TestAgentSystemPromptWithTeam(t *testing.T) {
-	team, err := NewTeam(TeamOptions{
-		Name:        "Research Team",
-		Description: "A team of researchers",
-		Agents: []Agent{
-			NewAgent(AgentOptions{
-				Name:          "Supervisor",
-				Description:   "Research lead.",
-				IsSupervisor:  true,
-				LLM:           anthropic.New(),
-				LogLevel:      "info",
-				DateAwareness: ptr(false),
-			}),
-			NewAgent(AgentOptions{
-				Name:          "Researcher",
-				Description:   "Research assistant.",
-				IsSupervisor:  false,
-				LLM:           anthropic.New(),
-				LogLevel:      "info",
-				DateAwareness: ptr(false),
-			}),
-		},
-	})
-	require.NoError(t, err)
-
-	supervisorAgent, found := team.GetAgent("Supervisor")
-	require.True(t, found)
-	require.True(t, supervisorAgent.(TeamAgent).IsSupervisor())
-
-	researcherAgent, found := team.GetAgent("Researcher")
-	require.True(t, found)
-	require.False(t, researcherAgent.(TeamAgent).IsSupervisor())
-
-	supervisor, ok := supervisorAgent.(*DiveAgent)
-	require.True(t, ok)
-
-	systemPrompt, err := supervisor.getSystemPromptForMode("task")
-	require.NoError(t, err)
-
-	expected, err := os.ReadFile("fixtures/agent-system-prompt-3.txt")
-	require.NoError(t, err)
-
-	require.Equal(t, string(expected), systemPrompt)
 }
 
 func TestAgentChatSystemPrompt(t *testing.T) {

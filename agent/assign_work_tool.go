@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/llm"
 )
 
@@ -117,33 +118,28 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 	if params.AgentName == t.self.Name() {
 		return "", fmt.Errorf("cannot delegate task to self")
 	}
-	agent, ok := t.self.Team().GetAgent(params.AgentName)
-	if !ok {
+	agent, err := t.self.environment.GetAgent(params.AgentName)
+	if err != nil {
 		return fmt.Sprintf("I couldn't find an agent named %q", params.AgentName), nil
 	}
-	teamAgent, ok := agent.(TeamAgent)
-	if !ok {
-		return fmt.Sprintf("Agent %q cannot accept tasks", params.AgentName), nil
-	}
 
-	outputFormat := OutputFormat(params.OutputFormat)
+	outputFormat := dive.OutputFormat(params.OutputFormat)
 	if outputFormat == "" {
-		outputFormat = OutputMarkdown
+		outputFormat = dive.OutputMarkdown
 	}
 
 	// Capture this request as a new task
-	step := NewStep(StepOptions{
-		Name:           params.Name,
-		Description:    params.Description,
-		ExpectedOutput: params.ExpectedOutput,
-		Context:        params.Context,
-		OutputFormat:   outputFormat,
-		AssignedAgent:  agent,
-		Timeout:        t.defaultStepTimeout,
-	})
+	task := &SimpleTask{
+		name:           params.Name,
+		description:    params.Description,
+		expectedOutput: params.ExpectedOutput,
+		assignedAgent:  agent,
+		dependencies:   []string{},
+		prompt:         "", // TODO
+	}
 
 	// Tell the agent to work on the task
-	stream, err := teamAgent.Work(ctx, step)
+	stream, err := agent.Work(ctx, task)
 	if err != nil {
 		return fmt.Sprintf("This assignment could not be started: %s", err.Error()), nil
 	}
@@ -161,8 +157,10 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 			if event.Error != "" {
 				return fmt.Sprintf("I encountered an error: %s", event.Error), nil
 			}
-			if event.StepResult != nil {
-				return event.StepResult.Content, nil
+			switch payload := event.Payload.(type) {
+			case *dive.TaskResult:
+				return payload.Content, nil
+			default:
 			}
 		case <-ctx.Done():
 			return fmt.Sprintf("My work timed out: %s", ctx.Err()), nil
