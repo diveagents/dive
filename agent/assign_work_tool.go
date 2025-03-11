@@ -154,7 +154,7 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 				done = true
 				break
 			}
-			if event.Error != "" {
+			if event.Error != nil {
 				return fmt.Sprintf("I encountered an error: %s", event.Error), nil
 			}
 			switch payload := event.Payload.(type) {

@@ -3,9 +3,11 @@ package events
 // CreateEvent creates a new event with the given parameters
 func CreateEvent(eventType string, agentName string, taskName string) *Event {
 	return &Event{
-		Type:      eventType,
-		AgentName: agentName,
-		TaskName:  taskName,
+		Type: eventType,
+		Origin: Origin{
+			AgentName: agentName,
+			TaskName:  taskName,
+		},
 	}
 }
 

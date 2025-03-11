@@ -25,7 +25,7 @@ func AgentNames(agents []dive.Agent) []string {
 	return agentNames
 }
 
-func TaskNames(tasks []*Task) []string {
+func TaskNames(tasks []dive.Task) []string {
 	var taskNames []string
 	for _, task := range tasks {
 		taskNames = append(taskNames, task.Name())
@@ -34,7 +34,7 @@ func TaskNames(tasks []*Task) []string {
 }
 
 // orderTasks sorts tasks into execution order using their dependencies.
-func orderTasks(tasks []*Task) ([]string, error) {
+func orderTasks(tasks []dive.Task) ([]string, error) {
 	nodes := make([]graph.Node, len(tasks))
 	for i, task := range tasks {
 		nodes[i] = task

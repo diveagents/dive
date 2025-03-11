@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/getstingrai/dive"
@@ -14,18 +13,17 @@ import (
 
 // Workflow represents a template for a repeatable process
 type Workflow struct {
-	name         string                         // Name of the workflow
-	description  string                         // Description of what the workflow does
-	tasks        []*Task                        // Tasks that make up the workflow
-	inputs       map[string]dive.WorkflowInput  // Expected input parameters
-	outputs      map[string]dive.WorkflowOutput // Expected output parameters
-	triggers     []Trigger                      // Events that can trigger this workflow
-	metadata     map[string]string              // Additional metadata about the workflow
-	agents       []dive.Agent                   // Agents available to execute tasks
-	documents    document.Repository            // Document repository for the workflow
-	logger       slogger.Logger                 // Logger for workflow operations
-	outputDir    string                         // Directory for workflow outputs
-	outputPlugin dive.OutputPlugin              // Plugin for handling task outputs
+	name        string                         // Name of the workflow
+	description string                         // Description of what the workflow does
+	tasks       []dive.Task                    // Tasks that make up the workflow
+	inputs      map[string]dive.WorkflowInput  // Expected input parameters
+	outputs     map[string]dive.WorkflowOutput // Expected output parameters
+	triggers    []Trigger                      // Events that can trigger this workflow
+	metadata    map[string]string              // Additional metadata about the workflow
+	agents      []dive.Agent                   // Agents available to execute tasks
+	documents   document.Repository            // Document repository for the workflow
+	logger      slogger.Logger                 // Logger for workflow operations
+	taskOutputs map[string]string              // Map of task names to output file paths
 }
 
 // Input defines an expected input parameter for a workflow
@@ -60,6 +58,9 @@ type WorkflowOptions struct {
 	Logger       slogger.Logger
 	OutputDir    string
 	OutputPlugin dive.OutputPlugin
+	Inputs       map[string]dive.WorkflowInput
+	Outputs      map[string]dive.WorkflowOutput
+	Tasks        []dive.Task
 }
 
 // NewWorkflow creates a new workflow
@@ -76,18 +77,27 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 	if opts.Logger == nil {
 		opts.Logger = slogger.NewDevNullLogger()
 	}
-
+	inputs := make(map[string]dive.WorkflowInput, len(opts.Inputs))
+	for name, input := range opts.Inputs {
+		inputs[name] = input
+	}
+	outputs := make(map[string]dive.WorkflowOutput, len(opts.Outputs))
+	for name, output := range opts.Outputs {
+		outputs[name] = output
+	}
+	tasks := make([]dive.Task, len(opts.Tasks))
+	copy(tasks, opts.Tasks)
 	return &Workflow{
-		name:         opts.Name,
-		description:  opts.Description,
-		agents:       opts.Agents,
-		documents:    opts.Repository,
-		logger:       opts.Logger,
-		outputDir:    opts.OutputDir,
-		outputPlugin: opts.OutputPlugin,
-		inputs:       make(map[string]dive.WorkflowInput),
-		outputs:      make(map[string]dive.WorkflowOutput),
-		metadata:     make(map[string]string),
+		name:        opts.Name,
+		description: opts.Description,
+		agents:      opts.Agents,
+		documents:   opts.Repository,
+		logger:      opts.Logger,
+		taskOutputs: make(map[string]string),
+		inputs:      inputs,
+		outputs:     outputs,
+		metadata:    make(map[string]string),
+		tasks:       tasks,
 	}, nil
 }
 
@@ -105,11 +115,11 @@ func (w *Workflow) Execute(ctx context.Context, inputs map[string]interface{}) (
 	}
 
 	// Convert ordered names back to tasks
-	tasksByName := make(map[string]*Task)
+	tasksByName := make(map[string]dive.Task, len(w.tasks))
 	for _, task := range w.tasks {
 		tasksByName[task.Name()] = task
 	}
-	var orderedTasks []*Task
+	var orderedTasks []dive.Task
 	for _, name := range orderedNames {
 		orderedTasks = append(orderedTasks, tasksByName[name])
 	}
@@ -118,12 +128,12 @@ func (w *Workflow) Execute(ctx context.Context, inputs map[string]interface{}) (
 	stream := events.NewStream()
 
 	// Run workflow execution in background
-	go w.executeWorkflow(ctx, orderedTasks, inputs, stream)
+	go w.executeWorkflow(ctx, orderedTasks, stream)
 
 	return stream, nil
 }
 
-func (w *Workflow) executeWorkflow(ctx context.Context, tasks []*Task, inputs map[string]interface{}, s events.Stream) {
+func (w *Workflow) executeWorkflow(ctx context.Context, tasks []dive.Task, s events.Stream) {
 	publisher := s.Publisher()
 	defer publisher.Close()
 
@@ -138,6 +148,7 @@ func (w *Workflow) executeWorkflow(ctx context.Context, tasks []*Task, inputs ma
 
 	// Execute tasks sequentially
 	for _, task := range tasks {
+
 		// Determine which agent should take the task
 		var agent dive.Agent
 		if task.AssignedAgent() != nil {
@@ -146,38 +157,33 @@ func (w *Workflow) executeWorkflow(ctx context.Context, tasks []*Task, inputs ma
 			agent = w.agents[0] // Default to first agent if none assigned
 		}
 
-		// Check if task output already exists
-		done, err := w.outputPlugin.OutputExists(ctx, task.Name(), "")
+		// Execute the task
+		result, err := w.executeTask(ctx, task, agent)
 		if err != nil {
-			w.logger.Error("failed to check if task output exists", "error", err)
-		}
-
-		if !done {
-			// Execute the task
-			result, err := w.executeTask(ctx, task, agent, inputs, publisher)
-			if err != nil {
-				publisher.Send(backgroundCtx, &events.Event{
-					Type:      "workflow.error",
+			publisher.Send(backgroundCtx, &events.Event{
+				Type: "workflow.error",
+				Origin: events.Origin{
 					TaskName:  task.Name(),
 					AgentName: agent.Name(),
-					Error:     err.Error(),
-				})
-				return
-			}
-
-			// Store task results
-			if err := w.outputPlugin.WriteOutput(ctx, task.Name(), "", result.Content); err != nil {
-				publisher.Send(backgroundCtx, &events.Event{
-					Type:      "workflow.error",
-					TaskName:  task.Name(),
-					AgentName: agent.Name(),
-					Error:     err.Error(),
-				})
-				return
-			}
-
-			// totalUsage.Add(result.Usage)
+				},
+				Error: err,
+			})
+			return
 		}
+
+		// Store task results
+		w.taskOutputs[task.Name()] = result.Content
+
+		publisher.Send(backgroundCtx, &events.Event{
+			Type: "workflow.task_done",
+			Origin: events.Origin{
+				TaskName:  task.Name(),
+				AgentName: agent.Name(),
+			},
+			Payload: result,
+		})
+
+		// totalUsage.Add(result.Usage)
 	}
 
 	w.logger.Info("workflow execution completed",
@@ -188,41 +194,18 @@ func (w *Workflow) executeWorkflow(ctx context.Context, tasks []*Task, inputs ma
 	publisher.Send(backgroundCtx, &events.Event{Type: "workflow.done"})
 }
 
-func (w *Workflow) executeTask(
-	ctx context.Context,
-	task *Task,
-	agent dive.Agent,
-	inputs map[string]interface{},
-	publisher events.Publisher,
-) (*dive.TaskResult, error) {
-	return nil, errors.New("not implemented")
-}
+func (w *Workflow) executeTask(ctx context.Context, task dive.Task, agent dive.Agent) (*dive.TaskResult, error) {
+	stream, err := agent.Work(ctx, task)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)
+	}
+	defer stream.Close()
 
-func (w *Workflow) AddTask(task *Task) error {
-	if task == nil {
-		return fmt.Errorf("task cannot be nil")
+	taskResult, err := events.WaitForEvent[*dive.TaskResult](ctx, stream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait for task result: %w", err)
 	}
-	if err := task.Validate(); err != nil {
-		return fmt.Errorf("invalid task: %w", err)
-	}
-	w.tasks = append(w.tasks, task)
-	return nil
-}
-
-func (w *Workflow) AddInput(input dive.WorkflowInput) error {
-	if input.Name == "" {
-		return fmt.Errorf("input name required")
-	}
-	w.inputs[input.Name] = input
-	return nil
-}
-
-func (w *Workflow) AddOutput(output dive.WorkflowOutput) error {
-	if output.Name == "" {
-		return fmt.Errorf("output name required")
-	}
-	w.outputs[output.Name] = output
-	return nil
+	return taskResult, nil
 }
 
 func (w *Workflow) validateInputs(inputs map[string]interface{}) error {
@@ -254,9 +237,7 @@ func (w *Workflow) Outputs() map[string]dive.WorkflowOutput {
 
 func (w *Workflow) Tasks() []dive.Task {
 	tasks := make([]dive.Task, len(w.tasks))
-	for i, task := range w.tasks {
-		tasks[i] = task
-	}
+	copy(tasks, w.tasks)
 	return tasks
 }
 

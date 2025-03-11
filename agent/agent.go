@@ -644,16 +644,21 @@ func (a *Agent) generate(
 					}
 					break
 				}
+				var err error
 				if event.Response != nil {
 					currentResponse = event.Response
+					err = safePublish(&events.Event{
+						Type:    "llm.response",
+						Origin:  a.eventOrigin(),
+						Payload: currentResponse,
+					})
+				} else {
+					err = safePublish(&events.Event{
+						Type:    "llm.event",
+						Origin:  a.eventOrigin(),
+						Payload: event,
+					})
 				}
-				err = safePublish(&events.Event{
-					Type: "llm.event",
-					// StepName:  stepName,
-					AgentName: a.name,
-					LLMEvent:  event,
-					Response:  currentResponse,
-				})
 				if err != nil {
 					return nil, updatedMessages, err
 				}
@@ -746,10 +751,6 @@ func (a *Agent) generate(
 	return response, updatedMessages, nil
 }
 
-func (a *Agent) documentStore() document.Repository {
-	return a.environment.Repository()
-}
-
 func (a *Agent) getTaskDocumentsMessage(ctx context.Context, task dive.Task) (*llm.Message, error) {
 	documents, err := a.loadTaskDocuments(ctx, task)
 	if err != nil {
@@ -765,6 +766,11 @@ func (a *Agent) getTaskDocumentsMessage(ctx context.Context, task dive.Task) (*l
 		parts = append(parts, text)
 	}
 	return llm.NewUserMessage(strings.Join(parts, "\n\n")), nil
+}
+
+func (a *Agent) TeamOverview() string {
+	// return a.environment.Team().Overview()
+	return ""
 }
 
 // loadTaskDocuments loads the content of documents referenced by a task
@@ -825,6 +831,8 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		"task_name", task.Name(),
 		"timeout", timeout.String(),
 	)
+	logger.Info("handling task",
+		"status", state.Status)
 
 	systemPrompt, err := a.getSystemPromptForMode("task")
 	if err != nil {
@@ -887,6 +895,22 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 	return nil
 }
 
+func (a *Agent) eventOrigin() events.Origin {
+	var taskName string
+	if a.activeTask != nil {
+		taskName = a.activeTask.Task.Name()
+	}
+	var environmentName string
+	if a.environment != nil {
+		environmentName = a.environment.Name()
+	}
+	return events.Origin{
+		AgentName:       a.name,
+		TaskName:        taskName,
+		EnvironmentName: environmentName,
+	}
+}
+
 func (a *Agent) doSomeWork() {
 
 	// Helper function to safely send events to the active task's publisher
@@ -909,11 +933,10 @@ func (a *Agent) doSomeWork() {
 			a.activeTask.Paused = false
 		}
 		safePublish(&events.Event{
-			Type:      "task.activated",
-			TaskName:  a.activeTask.Task.Name(),
-			AgentName: a.name,
+			Type:   "task.activated",
+			Origin: a.eventOrigin(),
 		})
-		a.logger.Debug("task activated",
+		a.logger.Info("task activated",
 			"agent", a.name,
 			"task", a.activeTask.Task.Name(),
 			"description", a.activeTask.Task.Description(),
@@ -921,9 +944,14 @@ func (a *Agent) doSomeWork() {
 	}
 
 	if a.activeTask == nil {
+		a.logger.Debug("no active task",
+			"agent", a.name,
+		)
 		return // Nothing to do!
 	}
 	stepName := a.activeTask.Task.Name()
+
+	a.logger.Info("handleTask to call...")
 
 	// Make progress on the active task
 	err := a.handleTask(context.Background(), a.activeTask)
@@ -933,10 +961,9 @@ func (a *Agent) doSomeWork() {
 		a.activeTask.Status = dive.TaskStatusError
 		a.rememberTask(a.activeTask)
 		safePublish(&events.Event{
-			Type:      "task.error",
-			TaskName:  stepName,
-			AgentName: a.name,
-			Error:     err.Error(),
+			Type:   "task.error",
+			Origin: a.eventOrigin(),
+			Error:  err,
 		})
 		a.logger.Error("task error",
 			"agent", a.name,
@@ -963,10 +990,9 @@ func (a *Agent) doSomeWork() {
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
 		safePublish(&events.Event{
-			Type:      "step.result",
-			TaskName:  stepName,
-			AgentName: a.name,
-			Payload: &events.TaskResult{
+			Type:   "step.result",
+			Origin: a.eventOrigin(),
+			Payload: &dive.TaskResult{
 				Task:    a.activeTask.Task,
 				Usage:   a.activeTask.Usage,
 				Content: a.activeTask.LastOutput(),
@@ -987,9 +1013,8 @@ func (a *Agent) doSomeWork() {
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
 		safePublish(&events.Event{
-			Type:      "step.progress",
-			TaskName:  stepName,
-			AgentName: a.name,
+			Type:   "step.progress",
+			Origin: a.eventOrigin(),
 		})
 
 	case dive.TaskStatusPaused:
@@ -999,9 +1024,8 @@ func (a *Agent) doSomeWork() {
 			"task", a.activeTask.Task.Name(),
 		)
 		safePublish(&events.Event{
-			Type:      "step.paused",
-			TaskName:  stepName,
-			AgentName: a.name,
+			Type:   "step.paused",
+			Origin: a.eventOrigin(),
 		})
 		a.activeTask.Paused = true
 		a.taskQueue = append(a.taskQueue, a.activeTask)
@@ -1016,10 +1040,9 @@ func (a *Agent) doSomeWork() {
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
 		safePublish(&events.Event{
-			Type:      "task.error",
-			TaskName:  stepName,
-			AgentName: a.name,
-			Error:     fmt.Sprintf("task status: %s", a.activeTask.Status),
+			Type:   "task.error",
+			Origin: a.eventOrigin(),
+			Error:  fmt.Errorf("task status: %s", a.activeTask.Status),
 		})
 		if a.activeTask.Publisher != nil {
 			a.activeTask.Publisher.Close()

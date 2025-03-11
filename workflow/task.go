@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -87,40 +86,6 @@ func (t *Task) SetContext(ctx string)               { t.context = ctx }
 func (t *Task) SetDependenciesOutput(output string) { t.depOutput = output }
 func (t *Task) SetResult(result *dive.TaskResult)   { t.result = result }
 func (t *Task) SetAssignedAgent(agent dive.Agent)   { t.assignedAgent = agent }
-
-// Execute runs the task and returns its result
-func (t *Task) Execute(ctx context.Context) (*dive.TaskResult, error) {
-	if t.assignedAgent == nil {
-		return nil, fmt.Errorf("no agent assigned to task %q", t.name)
-	}
-	agent := t.assignedAgent
-	stream, err := agent.Work(ctx, t)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start task %q: %w", t.name, err)
-	}
-	defer stream.Close()
-
-	// Wait for the result or an error
-	for {
-		select {
-		case event, ok := <-stream.Channel():
-			if !ok {
-				return nil, fmt.Errorf("task %q stream closed without result", t.name)
-			}
-			if event.Error != "" {
-				return nil, fmt.Errorf("task %q failed: %s", t.name, event.Error)
-			}
-			switch payload := event.Payload.(type) {
-			case *dive.TaskResult:
-				return payload, nil
-			default:
-				return nil, fmt.Errorf("unexpected payload type: %T", payload)
-			}
-		case <-ctx.Done():
-			return nil, fmt.Errorf("task %q timed out: %w", t.name, ctx.Err())
-		}
-	}
-}
 
 // Validate checks if the task is properly configured
 func (t *Task) Validate() error {

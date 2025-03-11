@@ -1,0 +1,92 @@
+---
+description: Architectural and multiple package awareness in Dive
+globs: 
+alwaysApply: true
+---
+# Dive Core Concepts
+
+## Project
+A project is a collection of modules, configurations, and resources that define what you want to accomplish. Projects typically:
+- Live in version control
+- Can be deployed to multiple environments
+- Define all resources needed to run
+- Contain configuration for different environments
+
+## Environment
+An environment is a running instance of a project. It contains:
+- Active module instances
+- Running executions
+- Current state of all resources
+- Environment-specific configuration
+
+Common environments include Production, Staging, and Development.
+
+## Module
+A self-contained, reusable collection of Dive resources that can be instantiated and run. Similar to Terraform modules, a Dive module:
+- Has defined inputs and outputs
+- Contains one or more workflows and their associated resources
+- Can be composed with other modules
+- Can be versioned and shared
+- Defines its own resources (documents, tables, agents)
+
+## Workflow
+- A template for a repeatable process
+- Has defined inputs and outputs
+- Can be triggered manually or automatically
+- Can invoke other workflows (supporting composition)
+- Each workflow execution is tracked independently
+
+## Task
+- An individual unit of work within a workflow
+- Defines a specific action or operation
+- Can be executed by agents
+- Has defined inputs and outputs
+- Can be synchronous or asynchronous
+
+## Execution
+- Represents a single run of a workflow
+- Has a unique identifier
+- Maintains state and history
+- Tracks task completions
+- Records inputs and outputs
+- Can spawn sub-executions for nested workflows
+
+## Agent
+- AI agents that perform tasks within workflows
+- Defined within modules
+- Have defined capabilities and roles
+- Maintain their own memory
+- Can access module resources
+- Can be specialized for specific types of tasks
+
+## Resources
+
+### Documents
+- Store structured and unstructured data
+- Defined within modules
+- Can be inputs to or outputs from workflows
+- Versioned and trackable
+
+### Tables
+- Structured data storage
+- Defined within modules
+- Queryable by agents and workflows
+- Support CRUD operations
+
+### Memory
+- Persistent context for specific agents
+- Scoped to individual agents
+- Supports agent learning and adaptation
+- Can be cleared or preserved
+
+### Triggers
+- Event-based workflow initiators
+- Can be time-based (schedules)
+- Can respond to external events
+- Can watch for resource changes
+
+### Integrations
+- Connections to external systems
+- Both incoming and outgoing
+- Can trigger workflows
+- Can be used by tasks

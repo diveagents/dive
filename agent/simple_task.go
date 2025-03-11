@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/getstingrai/dive"
+import (
+	"strings"
+
+	"github.com/getstingrai/dive"
+)
 
 var _ dive.Task = &SimpleTask{}
 
@@ -34,7 +38,21 @@ func (t *SimpleTask) Dependencies() []string {
 }
 
 func (t *SimpleTask) Prompt(opts dive.TaskPromptOptions) string {
-	return t.prompt
+	prompt := "Complete the following task:\n\n" + t.description
+	var contextParts []string
+	if opts.Context != "" {
+		contextParts = append(contextParts, opts.Context)
+	}
+	if len(t.dependencies) > 0 {
+		contextParts = append(contextParts, strings.Join(t.dependencies, ", "))
+	}
+	if len(contextParts) > 0 {
+		prompt += "\n\nContext:\n" + strings.Join(contextParts, "\n")
+	}
+	if t.expectedOutput != "" {
+		prompt += "\n\nExpected output:\n" + t.expectedOutput
+	}
+	return prompt
 }
 
 func (t *SimpleTask) Validate() error {
