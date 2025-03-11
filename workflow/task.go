@@ -8,7 +8,6 @@ import (
 
 	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/getstingrai/dive"
-	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/graph"
 )
 
@@ -16,32 +15,30 @@ import (
 type TaskOptions struct {
 	Name           string
 	Description    string
+	Kind           string
+	Inputs         map[string]Input
+	Outputs        map[string]Output
+	Timeout        time.Duration
+	Agent          dive.Agent
 	ExpectedOutput string
 	OutputFormat   dive.OutputFormat
 	OutputFile     string
-	Dependencies   []string
-	Timeout        time.Duration
-	Context        string
 	OutputObject   interface{}
-	AssignedAgent  dive.Agent
-	DocumentRefs   []document.DocumentRef
 }
 
-// Task represents one task in a workflow
+// Task represents one unit of work in a workflow
 type Task struct {
 	name           string
 	description    string
+	kind           string
+	inputs         map[string]Input
+	outputs        map[string]Output
+	timeout        time.Duration
+	agent          dive.Agent
 	expectedOutput string
 	outputFormat   dive.OutputFormat
-	outputObject   interface{}
-	assignedAgent  dive.Agent
-	dependencies   []string
-	documentRefs   []document.DocumentRef
 	outputFile     string
-	result         *dive.TaskResult
-	timeout        time.Duration
-	context        string
-	depOutput      string
+	outputObject   interface{}
 	nameIsRandom   bool
 }
 
@@ -55,37 +52,30 @@ func NewTask(opts TaskOptions) *Task {
 	return &Task{
 		name:           opts.Name,
 		description:    opts.Description,
+		kind:           opts.Kind,
+		inputs:         opts.Inputs,
+		outputs:        opts.Outputs,
+		timeout:        opts.Timeout,
+		agent:          opts.Agent,
 		expectedOutput: opts.ExpectedOutput,
 		outputFormat:   opts.OutputFormat,
-		outputObject:   opts.OutputObject,
 		outputFile:     opts.OutputFile,
-		assignedAgent:  opts.AssignedAgent,
-		dependencies:   opts.Dependencies,
-		documentRefs:   opts.DocumentRefs,
-		timeout:        opts.Timeout,
-		context:        opts.Context,
+		outputObject:   opts.OutputObject,
 		nameIsRandom:   nameIsRandom,
 	}
 }
 
-func (t *Task) Name() string                         { return t.name }
-func (t *Task) Description() string                  { return t.description }
-func (t *Task) ExpectedOutput() string               { return t.expectedOutput }
-func (t *Task) OutputFormat() dive.OutputFormat      { return t.outputFormat }
-func (t *Task) OutputObject() interface{}            { return t.outputObject }
-func (t *Task) AssignedAgent() dive.Agent            { return t.assignedAgent }
-func (t *Task) Dependencies() []string               { return t.dependencies }
-func (t *Task) DocumentRefs() []document.DocumentRef { return t.documentRefs }
-func (t *Task) OutputFile() string                   { return t.outputFile }
-func (t *Task) Result() *dive.TaskResult             { return t.result }
-func (t *Task) Timeout() time.Duration               { return t.timeout }
-func (t *Task) Context() string                      { return t.context }
-func (t *Task) DependenciesOutput() string           { return t.depOutput }
-
-func (t *Task) SetContext(ctx string)               { t.context = ctx }
-func (t *Task) SetDependenciesOutput(output string) { t.depOutput = output }
-func (t *Task) SetResult(result *dive.TaskResult)   { t.result = result }
-func (t *Task) SetAssignedAgent(agent dive.Agent)   { t.assignedAgent = agent }
+func (t *Task) Name() string                    { return t.name }
+func (t *Task) Description() string             { return t.description }
+func (t *Task) Kind() string                    { return t.kind }
+func (t *Task) Inputs() map[string]Input        { return t.inputs }
+func (t *Task) Outputs() map[string]Output      { return t.outputs }
+func (t *Task) Timeout() time.Duration          { return t.timeout }
+func (t *Task) Agent() dive.Agent               { return t.agent }
+func (t *Task) ExpectedOutput() string          { return t.expectedOutput }
+func (t *Task) OutputFormat() dive.OutputFormat { return t.outputFormat }
+func (t *Task) OutputFile() string              { return t.outputFile }
+func (t *Task) OutputObject() interface{}       { return t.outputObject }
 
 // Validate checks if the task is properly configured
 func (t *Task) Validate() error {
@@ -101,11 +91,6 @@ func (t *Task) Validate() error {
 	if t.outputFile != "" {
 		if !isSimpleFilename(t.outputFile) {
 			return fmt.Errorf("output file name %q contains invalid characters", t.outputFile)
-		}
-	}
-	for _, depID := range t.dependencies {
-		if depID == t.name {
-			return fmt.Errorf("task %q cannot depend on itself", t.name)
 		}
 	}
 	return nil
@@ -133,9 +118,9 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 		formatBlock(intro, "task", strings.Join(lines, "\n\n")),
 	}
 	var contextParts []string
-	if t.context != "" {
-		contextParts = append(contextParts, t.context)
-	}
+	// if t.context != "" {
+	// 	contextParts = append(contextParts, t.context)
+	// }
 	if opts.Context != "" {
 		contextParts = append(contextParts, opts.Context)
 	}
@@ -143,10 +128,10 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 		contextHeading := "Use this context while working on the task:"
 		promptParts = append(promptParts, formatBlock(contextHeading, "context", strings.Join(contextParts, "\n\n")))
 	}
-	if t.depOutput != "" {
-		depHeading := "Here is the output from this task's dependencies:"
-		promptParts = append(promptParts, formatBlock(depHeading, "dependencies", t.depOutput))
-	}
+	// if t.depOutput != "" {
+	// 	depHeading := "Here is the output from this task's dependencies:"
+	// 	promptParts = append(promptParts, formatBlock(depHeading, "dependencies", t.depOutput))
+	// }
 	promptParts = append(promptParts, "\n\nPlease begin working on the task.")
 	return strings.Join(promptParts, "\n\n")
 }

@@ -226,8 +226,6 @@ func TestWorkflow_Execute(t *testing.T) {
 	workflow, err := NewWorkflow(WorkflowOptions{
 		Name:        "test",
 		Description: "test workflow",
-		Agents:      []dive.Agent{mockAgent},
-		Repository:  mockRepo,
 		Tasks:       []dive.Task{task},
 	})
 	require.NoError(t, err)

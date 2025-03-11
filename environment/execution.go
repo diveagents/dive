@@ -246,3 +246,11 @@ func (e *Execution) executeTask(ctx context.Context, task dive.Task, agent dive.
 // 	// Record execution errors
 // 	RecordExecutionError(execution *Execution, err error)
 // }
+
+func TaskNames(tasks []dive.Task) []string {
+	var taskNames []string
+	for _, task := range tasks {
+		taskNames = append(taskNames, task.Name())
+	}
+	return taskNames
+}

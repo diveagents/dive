@@ -3,7 +3,6 @@ package dive
 import (
 	"context"
 
-	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/slogger"
@@ -33,22 +32,6 @@ const (
 	TaskStatusError     TaskStatus = "error"
 	TaskStatusInvalid   TaskStatus = "invalid"
 )
-
-// WorkflowInput defines an expected input parameter
-type WorkflowInput struct {
-	Name        string
-	Type        string
-	Description string
-	Required    bool
-	Default     interface{}
-}
-
-// WorkflowOutput defines an expected output parameter
-type WorkflowOutput struct {
-	Name        string
-	Type        string
-	Description string
-}
 
 type TaskPromptOptions struct {
 	Context string
@@ -146,37 +129,4 @@ type EventHandlerAgent interface {
 
 	// HandleEvent passes an event to the event handler
 	HandleEvent(ctx context.Context, event *events.Event) error
-}
-
-// Environment represents a running instance of a project
-type Environment interface {
-	// Name returns the environment name (e.g. "production", "staging")
-	Name() string
-
-	// Description returns details about this environment
-	Description() string
-
-	// Repository returns the document repository for this environment
-	Repository() document.Repository
-
-	// Agents returns all agents registered in this environment
-	Agents() []Agent
-
-	// GetAgent looks up an agent by name
-	GetAgent(name string) (Agent, error)
-
-	// RegisterAgent adds an agent to this environment
-	RegisterAgent(agent Agent) error
-
-	// Workflows returns all registered workflows
-	Workflows() []Workflow
-
-	// GetWorkflow looks up a workflow by ID
-	GetWorkflow(id string) (Workflow, error)
-
-	// StartWorkflow begins execution of a workflow
-	StartWorkflow(ctx context.Context, workflow Workflow) error
-
-	// StopWorkflow halts execution of a workflow
-	StopWorkflow(ctx context.Context, id string) error
 }
