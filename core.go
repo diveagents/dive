@@ -34,27 +34,6 @@ const (
 	TaskStatusInvalid   TaskStatus = "invalid"
 )
 
-// Workflow represents a template for a repeatable process
-type Workflow interface {
-	// Name returns the workflow name
-	Name() string
-
-	// Description returns the workflow description
-	Description() string
-
-	// Tasks returns the tasks that make up the workflow
-	Tasks() []Task
-
-	// Inputs returns the expected input parameters
-	Inputs() map[string]WorkflowInput
-
-	// Outputs returns the expected output parameters
-	Outputs() map[string]WorkflowOutput
-
-	// Validate checks if the workflow is properly configured
-	Validate() error
-}
-
 // WorkflowInput defines an expected input parameter
 type WorkflowInput struct {
 	Name        string
@@ -189,7 +168,7 @@ type Environment interface {
 	// RegisterAgent adds an agent to this environment
 	RegisterAgent(agent Agent) error
 
-	// Workflows returns all active workflow executions
+	// Workflows returns all registered workflows
 	Workflows() []Workflow
 
 	// GetWorkflow looks up a workflow by ID

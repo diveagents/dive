@@ -166,7 +166,7 @@ func buildTask(
 	variables map[string]interface{},
 ) (*workflow.Task, error) {
 	var timeout time.Duration
-	if stepDef.Timeout != "" {
+	if taskDef.Timeout != "" {
 		var err error
 		timeout, err = time.ParseDuration(taskDef.Timeout)
 		if err != nil {
@@ -176,36 +176,36 @@ func buildTask(
 
 	// Find assigned agent if specified
 	var assignedAgent dive.Agent
-	if stepDef.AssignedAgent != "" {
+	if taskDef.AssignedAgent != "" {
 		for _, agent := range agents {
-			if agent.Name() == stepDef.AssignedAgent {
+			if agent.Name() == taskDef.AssignedAgent {
 				assignedAgent = agent
 				break
 			}
 		}
 		if assignedAgent == nil {
-			return nil, fmt.Errorf("assigned agent %s not found", stepDef.AssignedAgent)
+			return nil, fmt.Errorf("assigned agent %s not found", taskDef.AssignedAgent)
 		}
 	}
 
 	// Convert document names to document refs
 	var documentRefs []document.DocumentRef
-	for _, docName := range stepDef.Documents {
+	for _, docName := range taskDef.Documents {
 		documentRefs = append(documentRefs, document.DocumentRef{
 			Name: docName,
 		})
 	}
 
-	return workflow.NewStep(workflow.StepOptions{
-		Name:           stepDef.Name,
-		Description:    stepDef.Description,
-		ExpectedOutput: stepDef.ExpectedOutput,
-		Dependencies:   stepDef.Dependencies,
-		OutputFormat:   workflow.OutputFormat(stepDef.OutputFormat),
+	return workflow.NewTask(workflow.TaskOptions{
+		Name:           taskDef.Name,
+		Description:    taskDef.Description,
+		ExpectedOutput: taskDef.ExpectedOutput,
+		Dependencies:   taskDef.Dependencies,
+		OutputFormat:   workflow.OutputFormat(taskDef.OutputFormat),
 		AssignedAgent:  assignedAgent,
-		OutputFile:     stepDef.OutputFile,
+		OutputFile:     taskDef.OutputFile,
 		Timeout:        timeout,
-		Context:        stepDef.Context,
+		Context:        taskDef.Context,
 		DocumentRefs:   documentRefs,
 	}), nil
 }

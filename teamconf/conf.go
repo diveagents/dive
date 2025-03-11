@@ -15,6 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ToolConfig map[string]interface{}
+
 // TeamDefinition is a serializable representation of a dive.Team
 type TeamDefinition struct {
 	Name        string         `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,optional"`

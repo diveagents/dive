@@ -3,42 +3,86 @@ package environment
 import (
 	"context"
 	"fmt"
-	"sync"
+	"time"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/slogger"
+	"github.com/getstingrai/dive/workflow"
+	"github.com/google/uuid"
 )
 
-// StandardEnvironment is the default implementation of Environment
-type StandardEnvironment struct {
+// Environment is the default implementation of Environment
+type Environment struct {
+	id          string
 	name        string
 	description string
 	agents      map[string]dive.Agent
-	workflows   map[string]dive.Workflow
-	mutex       sync.RWMutex
+	workflows   map[string]*workflow.Workflow
+	triggers    []*Trigger
+	executions  map[string]*Execution
+	logger      slogger.Logger
 }
 
-// NewEnvironment creates a new StandardEnvironment instance
-func NewEnvironment(name string, description string) *StandardEnvironment {
-	return &StandardEnvironment{
-		name:        name,
-		description: description,
-		agents:      make(map[string]dive.Agent),
-		workflows:   make(map[string]dive.Workflow),
+// EnvironmentOptions configures a new environment
+type EnvironmentOptions struct {
+	ID          string
+	Name        string
+	Description string
+	Agents      []dive.Agent
+	Workflows   []*workflow.Workflow
+	Triggers    []*Trigger
+	Executions  []*Execution
+	Logger      slogger.Logger
+}
+
+// New creates a new Environment instance
+func New(opts EnvironmentOptions) (*Environment, error) {
+	if opts.Name == "" {
+		return nil, fmt.Errorf("name is required")
 	}
+	agents := make(map[string]dive.Agent, len(opts.Agents))
+	for _, agent := range opts.Agents {
+		if _, exists := agents[agent.Name()]; exists {
+			return nil, fmt.Errorf("agent already registered: %s", agent.Name())
+		}
+		agents[agent.Name()] = agent
+	}
+	workflows := make(map[string]*workflow.Workflow, len(opts.Workflows))
+	for _, workflow := range opts.Workflows {
+		if _, exists := workflows[workflow.Name()]; exists {
+			return nil, fmt.Errorf("workflow already registered: %s", workflow.Name())
+		}
+		workflows[workflow.Name()] = workflow
+	}
+	triggers := make([]*Trigger, len(opts.Triggers))
+	for i, trigger := range opts.Triggers {
+		triggers[i] = trigger
+	}
+	executions := make(map[string]*Execution, len(opts.Executions))
+	for _, execution := range opts.Executions {
+		executions[execution.ID] = execution
+	}
+	return &Environment{
+		id:          opts.ID,
+		name:        opts.Name,
+		description: opts.Description,
+		agents:      agents,
+		workflows:   workflows,
+		triggers:    triggers,
+		executions:  executions,
+		logger:      opts.Logger,
+	}, nil
 }
 
-func (e *StandardEnvironment) Name() string {
+func (e *Environment) Name() string {
 	return e.name
 }
 
-func (e *StandardEnvironment) Description() string {
+func (e *Environment) Description() string {
 	return e.description
 }
 
-func (e *StandardEnvironment) Agents() []dive.Agent {
-	e.mutex.RLock()
-	defer e.mutex.RUnlock()
-
+func (e *Environment) Agents() []dive.Agent {
 	agents := make([]dive.Agent, 0, len(e.agents))
 	for _, agent := range e.agents {
 		agents = append(agents, agent)
@@ -46,69 +90,55 @@ func (e *StandardEnvironment) Agents() []dive.Agent {
 	return agents
 }
 
-func (e *StandardEnvironment) GetAgent(name string) (dive.Agent, error) {
-	e.mutex.RLock()
-	defer e.mutex.RUnlock()
-
+func (e *Environment) GetAgent(name string) (dive.Agent, error) {
 	if agent, exists := e.agents[name]; exists {
 		return agent, nil
 	}
 	return nil, fmt.Errorf("agent not found: %s", name)
 }
 
-func (e *StandardEnvironment) RegisterAgent(agent dive.Agent) error {
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-
+func (e *Environment) AddAgent(agent dive.Agent) error {
 	if _, exists := e.agents[agent.Name()]; exists {
-		return fmt.Errorf("agent already registered: %s", agent.Name())
+		return fmt.Errorf("agent already present: %s", agent.Name())
 	}
-
 	e.agents[agent.Name()] = agent
 	return nil
 }
 
-func (e *StandardEnvironment) Workflows() []dive.Workflow {
-	e.mutex.RLock()
-	defer e.mutex.RUnlock()
-
-	workflows := make([]dive.Workflow, 0, len(e.workflows))
+func (e *Environment) Workflows() []*workflow.Workflow {
+	workflows := make([]*workflow.Workflow, 0, len(e.workflows))
 	for _, workflow := range e.workflows {
 		workflows = append(workflows, workflow)
 	}
 	return workflows
 }
 
-func (e *StandardEnvironment) GetWorkflow(id string) (dive.Workflow, error) {
-	e.mutex.RLock()
-	defer e.mutex.RUnlock()
-
-	if workflow, exists := e.workflows[id]; exists {
+func (e *Environment) GetWorkflow(name string) (*workflow.Workflow, error) {
+	if workflow, exists := e.workflows[name]; exists {
 		return workflow, nil
 	}
-	return nil, fmt.Errorf("workflow not found: %s", id)
+	return nil, fmt.Errorf("workflow not found: %s", name)
 }
 
-func (e *StandardEnvironment) StartWorkflow(ctx context.Context, workflow dive.Workflow) error {
-	if err := workflow.Validate(); err != nil {
-		return fmt.Errorf("invalid workflow: %w", err)
+func (e *Environment) AddWorkflow(workflow *workflow.Workflow) error {
+	if _, exists := e.workflows[workflow.Name()]; exists {
+		return fmt.Errorf("workflow already present: %s", workflow.Name())
 	}
-
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-
 	e.workflows[workflow.Name()] = workflow
 	return nil
 }
 
-func (e *StandardEnvironment) StopWorkflow(ctx context.Context, id string) error {
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-
-	if _, exists := e.workflows[id]; !exists {
-		return fmt.Errorf("workflow not found: %s", id)
+func (e *Environment) StartWorkflow(ctx context.Context, workflow *workflow.Workflow) (*Execution, error) {
+	if _, exists := e.workflows[workflow.Name()]; !exists {
+		return nil, fmt.Errorf("workflow not found: %s", workflow.Name())
 	}
-
-	delete(e.workflows, id)
-	return nil
+	execution := workflow.NewExecution(workflow.ExecutionOptions{
+		ID:        uuid.New().String(),
+		Workflow:  workflow,
+		Status:    workflow.StatusRunning,
+		StartTime: time.Now(),
+		EndTime:   time.Time{},
+	})
+	e.executions[execution.ID] = execution
+	return execution, nil
 }
