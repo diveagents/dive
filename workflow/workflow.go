@@ -42,29 +42,23 @@ type WorkflowOptions struct {
 	Graph       *Graph
 }
 
-// NewWorkflow creates a new workflow
+// NewWorkflow creates and validates a workflow
 func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("workflow name required")
 	}
-	return &Workflow{
+	w := &Workflow{
 		name:        opts.Name,
 		description: opts.Description,
+		tasks:       opts.Tasks,
 		inputs:      opts.Inputs,
 		outputs:     opts.Outputs,
-		tasks:       opts.Tasks,
-	}, nil
-}
-
-func (w *Workflow) validateInputs(inputs map[string]interface{}) error {
-	for name, input := range w.inputs {
-		if input.Required {
-			if _, exists := inputs[name]; !exists {
-				return fmt.Errorf("required input %q missing", name)
-			}
-		}
+		graph:       opts.Graph,
 	}
-	return nil
+	if err := w.Validate(); err != nil {
+		return nil, err
+	}
+	return w, nil
 }
 
 func (w *Workflow) Name() string {
@@ -87,6 +81,10 @@ func (w *Workflow) Tasks() []dive.Task {
 	return w.tasks
 }
 
+func (w *Workflow) Graph() *Graph {
+	return w.graph
+}
+
 // Validate checks if the workflow is properly configured
 func (w *Workflow) Validate() error {
 	if w.name == "" {
@@ -106,10 +104,24 @@ func (w *Workflow) Validate() error {
 		}
 		taskNames[taskName] = true
 	}
-	for _, task := range w.tasks {
-		for _, dep := range task.Dependencies() {
-			if !taskNames[dep] {
-				return fmt.Errorf("task %q depends on unknown task %q", task.Name(), dep)
+	if w.graph == nil {
+		return fmt.Errorf("graph required")
+	}
+	startNode := w.graph.StartNode()
+	if startNode == nil {
+		return fmt.Errorf("graph start task required")
+	}
+	for _, nodeName := range w.graph.NodeNames() {
+		node, ok := w.graph.GetNode(nodeName)
+		if !ok {
+			return fmt.Errorf("task %q not found", nodeName)
+		}
+		if _, exists := taskNames[nodeName]; !exists {
+			return fmt.Errorf("task %q not found", nodeName)
+		}
+		for _, edge := range node.Next {
+			if _, exists := taskNames[edge.To.Name()]; !exists {
+				return fmt.Errorf("task %q not found", edge.To.Name())
 			}
 		}
 	}

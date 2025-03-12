@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Environment is the default implementation of Environment
+// Environment is a container for running agents and workflow executions
 type Environment struct {
 	id          string
 	name        string
@@ -38,7 +38,7 @@ type EnvironmentOptions struct {
 // New creates a new Environment instance
 func New(opts EnvironmentOptions) (*Environment, error) {
 	if opts.Name == "" {
-		return nil, fmt.Errorf("name is required")
+		return nil, fmt.Errorf("environment name is required")
 	}
 	agents := make(map[string]dive.Agent, len(opts.Agents))
 	for _, agent := range opts.Agents {
@@ -54,13 +54,9 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		}
 		workflows[workflow.Name()] = workflow
 	}
-	triggers := make([]*Trigger, len(opts.Triggers))
-	for i, trigger := range opts.Triggers {
-		triggers[i] = trigger
-	}
 	executions := make(map[string]*Execution, len(opts.Executions))
 	for _, execution := range opts.Executions {
-		executions[execution.ID] = execution
+		executions[execution.ID()] = execution
 	}
 	return &Environment{
 		id:          opts.ID,
@@ -68,7 +64,7 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		description: opts.Description,
 		agents:      agents,
 		workflows:   workflows,
-		triggers:    triggers,
+		triggers:    opts.Triggers,
 		executions:  executions,
 		logger:      opts.Logger,
 	}, nil
@@ -128,17 +124,28 @@ func (e *Environment) AddWorkflow(workflow *workflow.Workflow) error {
 	return nil
 }
 
-func (e *Environment) StartWorkflow(ctx context.Context, workflow *workflow.Workflow) (*Execution, error) {
+// StartWorkflow starts a new workflow execution
+func (e *Environment) StartWorkflow(
+	ctx context.Context,
+	workflow *workflow.Workflow,
+	inputs map[string]interface{},
+) (*Execution, error) {
 	if _, exists := e.workflows[workflow.Name()]; !exists {
 		return nil, fmt.Errorf("workflow not found: %s", workflow.Name())
 	}
-	execution := workflow.NewExecution(workflow.ExecutionOptions{
+	execution := NewExecution(ExecutionOptions{
 		ID:        uuid.New().String(),
 		Workflow:  workflow,
-		Status:    workflow.StatusRunning,
+		Status:    StatusRunning,
 		StartTime: time.Now(),
-		EndTime:   time.Time{},
+		Inputs:    inputs,
+		Logger:    e.logger,
 	})
-	e.executions[execution.ID] = execution
+	e.executions[execution.ID()] = execution
+
+	// Run the workflow. This runs as soon as execution begins.
+	if err := execution.Run(ctx); err != nil {
+		return nil, err
+	}
 	return execution, nil
 }

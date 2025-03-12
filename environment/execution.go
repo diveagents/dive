@@ -34,6 +34,7 @@ type taskState struct {
 // Execution represents a single run of a workflow
 type Execution struct {
 	id          string                 // Unique identifier for this execution
+	environment *Environment           // Environment that the execution belongs to
 	workflow    *workflow.Workflow     // Workflow being executed
 	status      Status                 // Current status of the execution
 	startTime   time.Time              // When the execution started
@@ -47,33 +48,34 @@ type Execution struct {
 	childIDs    []string               // IDs of child executions
 	metadata    map[string]string      // Additional metadata about the execution
 	logger      slogger.Logger         // Logger for the execution
+	stream      events.Stream          // Stream of events for the execution
 }
 
 type ExecutionOptions struct {
-	ID        string
-	Workflow  *workflow.Workflow
-	Status    Status
-	StartTime time.Time
-	EndTime   time.Time
-	Inputs    map[string]interface{}
-	Outputs   map[string]interface{}
-	Error     error
-	ParentID  string
-	ChildIDs  []string
-	Metadata  map[string]string
-	Logger    slogger.Logger
+	ID          string
+	Environment *Environment
+	Workflow    *workflow.Workflow
+	Status      Status
+	StartTime   time.Time
+	EndTime     time.Time
+	Inputs      map[string]interface{}
+	Outputs     map[string]interface{}
+	ParentID    string
+	ChildIDs    []string
+	Metadata    map[string]string
+	Logger      slogger.Logger
 }
 
 func NewExecution(opts ExecutionOptions) *Execution {
 	return &Execution{
 		id:          opts.ID,
+		environment: opts.Environment,
 		workflow:    opts.Workflow,
 		status:      opts.Status,
 		startTime:   opts.StartTime,
 		endTime:     opts.EndTime,
 		inputs:      opts.Inputs,
 		outputs:     opts.Outputs,
-		err:         opts.Error,
 		parentID:    opts.ParentID,
 		childIDs:    opts.ChildIDs,
 		metadata:    opts.Metadata,
@@ -83,93 +85,102 @@ func NewExecution(opts ExecutionOptions) *Execution {
 	}
 }
 
-// Run the execution
-func (e *Execution) Run(ctx context.Context, inputs map[string]interface{}) (events.Stream, error) {
-	// Validate inputs against workflow.inputs requirements
-	// if err := e.workflow.validateInputs(inputs); err != nil {
-	// 	return nil, fmt.Errorf("invalid inputs: %w", err)
-	// }
-
-	// Convert ordered names back to tasks
-	tasksByName := make(map[string]dive.Task, len(e.workflow.Tasks()))
-	for _, task := range e.workflow.Tasks() {
-		tasksByName[task.Name()] = task
-	}
-	var orderedTasks []dive.Task
-	for _, name := range orderedNames {
-		orderedTasks = append(orderedTasks, tasksByName[name])
-	}
-
-	// Create stream for workflow events
-	stream := events.NewStream()
-
-	// Run workflow execution in background
-	go e.executeWorkflow(ctx, orderedTasks, stream)
-
-	return stream, nil
+func (e *Execution) ID() string {
+	return e.id
 }
 
-func (e *Execution) executeWorkflow(ctx context.Context, tasks []dive.Task, s events.Stream) {
-	publisher := s.Publisher()
+func (e *Execution) Workflow() *workflow.Workflow {
+	return e.workflow
+}
+
+func (e *Execution) Environment() *Environment {
+	return e.environment
+}
+
+func (e *Execution) Status() Status {
+	return e.status
+}
+
+func (e *Execution) StartTime() time.Time {
+	return e.startTime
+}
+
+func (e *Execution) Run(ctx context.Context) error {
+	if e.status != StatusPending {
+		return fmt.Errorf("execution already started")
+	}
+	e.status = StatusRunning
+	e.stream = events.NewStream()
+
+	go func() {
+		if err := e.runWorkflow(ctx, e.stream); err != nil {
+			e.logger.Error("workflow execution failed", "error", err)
+			e.status = StatusFailed
+			e.err = err
+		}
+		e.status = StatusCompleted
+		e.endTime = time.Now()
+		e.stream.Close()
+		e.logger.Info("workflow execution completed", "execution_id", e.id)
+	}()
+
+	return nil
+}
+
+func (e *Execution) runWorkflow(ctx context.Context, stream events.Stream) error {
+	publisher := stream.Publisher()
 	defer publisher.Close()
 
 	backgroundCtx := context.Background()
+
+	graph := e.workflow.Graph()
 	totalUsage := llm.Usage{}
 
-	e.logger.Debug("workflow execution started",
-		"workflow_name", e.workflow.name,
-		"task_count", len(tasks),
-		"task_names", TaskNames(tasks),
+	e.logger.Debug(
+		"workflow execution started",
+		"workflow_name", e.workflow.Name(),
+		"start_node", graph.StartNode().Name(),
 	)
 
-	w := e.workflow
+	node := graph.StartNode()
 
-	// Execute tasks sequentially
-	for _, task := range tasks {
+	for {
+		task := node.Task
 
 		// Determine which agent should take the task
 		var agent dive.Agent
 		if task.AssignedAgent() != nil {
 			agent = task.AssignedAgent()
 		} else {
-			agent = w.agents[0] // Default to first agent if none assigned
+			// Default to first agent if none assigned
+			agent = e.environment.Agents()[0]
 		}
 
-		// Execute the task
 		result, err := e.executeTask(ctx, task, agent)
 		if err != nil {
-			publisher.Send(backgroundCtx, &events.Event{
-				Type: "workflow.error",
-				Origin: events.Origin{
-					TaskName:  task.Name(),
-					AgentName: agent.Name(),
-				},
-				Error: err,
-			})
-			return
+			return err
 		}
-
-		// Store task results
 		e.taskOutputs[task.Name()] = result.Content
 
-		publisher.Send(backgroundCtx, &events.Event{
-			Type: "workflow.task_done",
-			Origin: events.Origin{
-				TaskName:  task.Name(),
-				AgentName: agent.Name(),
-			},
-			Payload: result,
-		})
+		nextEdges := node.Next
 
-		// totalUsage.Add(result.Usage)
+		if len(nextEdges) == 0 {
+			break
+		} else if len(nextEdges) == 1 {
+			node = nextEdges[0].To
+		} else {
+			return fmt.Errorf("multiple next edges")
+		}
 	}
 
-	w.logger.Info("workflow execution completed",
-		"workflow_name", w.name,
+	e.logger.Info(
+		"workflow execution completed",
+		"workflow_name", e.workflow.Name(),
 		"total_usage", totalUsage,
 	)
-
 	publisher.Send(backgroundCtx, &events.Event{Type: "workflow.done"})
+
+	return nil
 }
 
 func (e *Execution) executeTask(ctx context.Context, task dive.Task, agent dive.Agent) (*dive.TaskResult, error) {
