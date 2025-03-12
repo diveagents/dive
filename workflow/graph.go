@@ -17,8 +17,7 @@ type Variable interface {
 }
 
 type Edge struct {
-	From      *Node
-	To        *Node
+	To        string
 	Condition Condition
 }
 
@@ -106,6 +105,7 @@ func NewGraph(opts GraphOptions) *Graph {
 			startNodes = append(startNodes, node)
 		}
 		graphNodes[name] = node
+		fmt.Println("node", name, node.name)
 	}
 	return &Graph{
 		nodes: graphNodes,
@@ -140,6 +140,11 @@ func (g *Graph) Validate() error {
 	for _, node := range g.nodes {
 		if node.name == "" {
 			return fmt.Errorf("node name cannot be empty")
+		}
+		for _, edge := range node.next {
+			if _, ok := g.nodes[edge.To]; !ok {
+				return fmt.Errorf("edge to node %q not found", edge.To)
+			}
 		}
 	}
 	return nil

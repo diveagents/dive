@@ -172,10 +172,6 @@ func (e *Environment) StartWorkflow(
 			e.logger.Error("workflow execution failed", "error", err)
 			return
 		}
-		e.logger.Info("workflow execution completed",
-			"execution_id", execution.ID(),
-			"workflow_name", workflow.Name(),
-		)
 	}()
 
 	return handle, nil

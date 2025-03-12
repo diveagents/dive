@@ -120,12 +120,18 @@ func (w *Workflow) Validate() error {
 	for _, nodeName := range w.graph.Names() {
 		node, ok := w.graph.Get(nodeName)
 		if !ok {
-			return fmt.Errorf("task %q not found", nodeName)
+			return fmt.Errorf("task %q not found (1)", nodeName)
 		}
 		for _, edge := range node.Next() {
-			toTaskName := edge.To.TaskName()
-			if _, found := taskNames[toTaskName]; !found {
-				return fmt.Errorf("task %q not found", toTaskName)
+			targetNode, ok := w.graph.Get(edge.To)
+			if !ok {
+				return fmt.Errorf("task %q not found (2)", edge.To)
+			}
+			if targetNode.TaskName() == "" {
+				return fmt.Errorf("task %q has no name", edge.To)
+			}
+			if _, found := taskNames[targetNode.TaskName()]; !found {
+				return fmt.Errorf("task %q not found (3)", targetNode.TaskName())
 			}
 		}
 	}

@@ -157,7 +157,7 @@ func (e *Execution) runWorkflow(ctx context.Context) error {
 			currentNode: startNode,
 		}
 		activePaths[initialPath.id] = initialPath
-		go e.runPath(ctx, initialPath, updates)
+		go e.runPath(ctx, graph, initialPath, updates)
 		e.logger.Info("started initial path", "path_id", initialPath.id)
 	}
 
@@ -182,7 +182,7 @@ func (e *Execution) runWorkflow(ctx context.Context) error {
 			// Start any new paths
 			for _, newPath := range update.newPaths {
 				activePaths[newPath.id] = newPath
-				go e.runPath(ctx, newPath, updates)
+				go e.runPath(ctx, graph, newPath, updates)
 			}
 		}
 	}
@@ -195,7 +195,7 @@ func (e *Execution) runWorkflow(ctx context.Context) error {
 	return nil
 }
 
-func (e *Execution) runPath(ctx context.Context, path *executionPath, updates chan<- pathUpdate) {
+func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *executionPath, updates chan<- pathUpdate) {
 	nextPathID := 0
 	getNextPathID := func() string {
 		nextPathID++
@@ -232,14 +232,24 @@ func (e *Execution) runPath(ctx context.Context, path *executionPath, updates ch
 		if len(nextEdges) > 1 {
 			// Create new paths for all edges
 			for _, edge := range nextEdges {
+				nextNode, ok := graph.Get(edge.To)
+				if !ok {
+					e.logger.Error("next node not found", "node", edge.To)
+					continue
+				}
 				newPaths = append(newPaths, &executionPath{
 					id:          getNextPathID(),
-					currentNode: edge.To,
+					currentNode: nextNode,
 				})
 			}
 		} else if len(nextEdges) == 1 {
 			// Continue on same path
-			path.currentNode = nextEdges[0].To
+			nextNode, ok := graph.Get(nextEdges[0].To)
+			if !ok {
+				e.logger.Error("next node not found", "node", nextEdges[0].To)
+				continue
+			}
+			path.currentNode = nextNode
 			newPaths = []*executionPath{path}
 		}
 
