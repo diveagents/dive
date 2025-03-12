@@ -47,17 +47,15 @@ func TestNewEnvironment(t *testing.T) {
 				"Write Poem": workflow.NewNode(workflow.NodeOptions{
 					IsStart: true,
 					Task: workflow.NewTask(workflow.TaskOptions{
-						Name:           "Write a Poem",
-						ExpectedOutput: "A haiku about the fall",
-						Agent:          a,
+						Name:  "Write a Poem",
+						Agent: a,
 					}),
 					Next: []*workflow.Edge{{To: "Write Summary"}},
 				}),
 				"Write Summary": workflow.NewNode(workflow.NodeOptions{
 					Task: workflow.NewTask(workflow.TaskOptions{
-						Name:           "Write a summary",
-						ExpectedOutput: "A summary of the poem",
-						Agent:          a,
+						Name:  "Write a summary",
+						Agent: a,
 					}),
 				}),
 			},
@@ -96,4 +94,222 @@ func TestNewEnvironment(t *testing.T) {
 	require.Equal(t, "Write Summary", s0.CurrentNode.Name())
 	require.Equal(t, "A summary of that great poem", s0.NodeOutputs["Write Summary"])
 	require.Equal(t, "A haiku about the fall", s0.NodeOutputs["Write Poem"])
+}
+
+func TestEnvironmentWithMultipleAgents(t *testing.T) {
+	logger := slogger.New(slogger.LevelDebug)
+
+	agent1 := agent.NewMockAgent(agent.MockAgentOptions{
+		Name: "Writer",
+		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
+			stream := events.NewStream()
+			go func() {
+				publisher := stream.Publisher()
+				defer publisher.Close()
+				publisher.Send(ctx, &events.Event{
+					Type:    "task.result",
+					Payload: &dive.TaskResult{Content: "Written content"},
+				})
+			}()
+			return stream, nil
+		},
+	})
+
+	agent2 := agent.NewMockAgent(agent.MockAgentOptions{
+		Name: "Editor",
+		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
+			stream := events.NewStream()
+			go func() {
+				publisher := stream.Publisher()
+				defer publisher.Close()
+				publisher.Send(ctx, &events.Event{
+					Type:    "task.result",
+					Payload: &dive.TaskResult{Content: "Edited content"},
+				})
+			}()
+			return stream, nil
+		},
+	})
+
+	env, err := New(EnvironmentOptions{
+		Name:   "test-multi-agent",
+		Agents: []dive.Agent{agent1, agent2},
+		Logger: logger,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, env)
+
+	defer env.Stop(context.Background())
+
+	require.Equal(t, 2, len(env.Agents()))
+
+	foundWriter := false
+	foundEditor := false
+	for _, a := range env.Agents() {
+		if a.Name() == "Writer" {
+			foundWriter = true
+		}
+		if a.Name() == "Editor" {
+			foundEditor = true
+		}
+	}
+	require.True(t, foundWriter, "Writer agent should be present")
+	require.True(t, foundEditor, "Editor agent should be present")
+}
+
+func TestEnvironmentGetAgent(t *testing.T) {
+	logger := slogger.New(slogger.LevelDebug)
+
+	mockAgent := agent.NewMockAgent(agent.MockAgentOptions{
+		Name: "TestAgent",
+	})
+
+	env, err := New(EnvironmentOptions{
+		Name:   "test-get-agent",
+		Agents: []dive.Agent{mockAgent},
+		Logger: logger,
+	})
+	require.NoError(t, err)
+
+	// Test getting existing agent
+	agent, err := env.GetAgent("TestAgent")
+	require.NoError(t, err)
+	require.NotNil(t, agent)
+	require.Equal(t, "TestAgent", agent.Name())
+
+	// Test getting non-existent agent
+	agent, err = env.GetAgent("NonExistentAgent")
+	require.Error(t, err)
+	require.Nil(t, agent)
+	require.Contains(t, err.Error(), "agent not found")
+}
+
+func TestExecutionStats(t *testing.T) {
+	logger := slogger.New(slogger.LevelDebug)
+
+	mockAgent := agent.NewMockAgent(agent.MockAgentOptions{
+		Name: "StatsAgent",
+		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
+			stream := events.NewStream()
+			go func() {
+				publisher := stream.Publisher()
+				defer publisher.Close()
+				publisher.Send(ctx, &events.Event{
+					Type:    "task.result",
+					Payload: &dive.TaskResult{Content: "Task completed"},
+				})
+			}()
+			return stream, nil
+		},
+	})
+
+	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
+		Name: "Stats Test",
+		Graph: workflow.NewGraph(workflow.GraphOptions{
+			Nodes: map[string]*workflow.Node{
+				"Task1": workflow.NewNode(workflow.NodeOptions{
+					IsStart: true,
+					Task: workflow.NewTask(workflow.TaskOptions{
+						Name:  "Test Task",
+						Agent: mockAgent,
+					}),
+				}),
+			},
+		}),
+	})
+	require.NoError(t, err)
+
+	env, err := New(EnvironmentOptions{
+		Name:      "test-stats",
+		Agents:    []dive.Agent{mockAgent},
+		Workflows: []*workflow.Workflow{w},
+		Logger:    logger,
+	})
+	require.NoError(t, err)
+
+	execution, err := env.StartWorkflow(context.Background(), w, map[string]interface{}{})
+	require.NoError(t, err)
+
+	err = execution.Wait()
+	require.NoError(t, err)
+
+	stats := execution.GetStats()
+	require.Equal(t, 1, stats.TotalPaths)
+	require.Equal(t, 0, stats.ActivePaths)
+	require.Equal(t, 1, stats.CompletedPaths)
+	require.Equal(t, 0, stats.FailedPaths)
+	require.False(t, stats.StartTime.IsZero())
+	require.False(t, stats.EndTime.IsZero())
+	require.True(t, stats.Duration > 0)
+}
+
+func TestExecutionCancellation(t *testing.T) {
+	logger := slogger.New(slogger.LevelDebug)
+
+	// Create a channel to control when the task completes
+	taskControl := make(chan struct{})
+
+	mockAgent := agent.NewMockAgent(agent.MockAgentOptions{
+		Name: "SlowAgent",
+		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
+			stream := events.NewStream()
+			go func() {
+				publisher := stream.Publisher()
+				defer publisher.Close()
+
+				select {
+				case <-ctx.Done():
+					// Context was cancelled
+					return
+				case <-taskControl:
+					// Task was allowed to complete
+					publisher.Send(ctx, &events.Event{
+						Type:    "task.result",
+						Payload: &dive.TaskResult{Content: "Completed"},
+					})
+				}
+			}()
+			return stream, nil
+		},
+	})
+
+	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
+		Name: "Cancellation Test",
+		Graph: workflow.NewGraph(workflow.GraphOptions{
+			Nodes: map[string]*workflow.Node{
+				"SlowTask": workflow.NewNode(workflow.NodeOptions{
+					IsStart: true,
+					Task: workflow.NewTask(workflow.TaskOptions{
+						Name:  "Slow Task",
+						Agent: mockAgent,
+					}),
+				}),
+			},
+		}),
+	})
+	require.NoError(t, err)
+
+	env, err := New(EnvironmentOptions{
+		Name:      "test-cancellation",
+		Agents:    []dive.Agent{mockAgent},
+		Workflows: []*workflow.Workflow{w},
+		Logger:    logger,
+	})
+	require.NoError(t, err)
+
+	// Create a context that we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+
+	execution, err := env.StartWorkflow(ctx, w, map[string]interface{}{})
+	require.NoError(t, err)
+
+	// Cancel the context before allowing the task to complete
+	cancel()
+
+	err = execution.Wait()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "context canceled")
+
+	// Clean up
+	close(taskControl)
 }

@@ -88,12 +88,25 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 	return env, nil
 }
 
+func (e *Environment) ID() string {
+	return e.id
+}
+
 func (e *Environment) Name() string {
 	return e.name
 }
 
 func (e *Environment) Description() string {
 	return e.description
+}
+
+func (e *Environment) Stop(ctx context.Context) {
+	for _, agent := range e.Agents() {
+		if runnableAgent, ok := agent.(dive.RunnableAgent); ok {
+			runnableAgent.Stop(ctx)
+		}
+	}
+	// TODO: stop executions
 }
 
 func (e *Environment) Agents() []dive.Agent {
