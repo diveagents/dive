@@ -47,6 +47,12 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("workflow name required")
 	}
+	if opts.Graph == nil {
+		return nil, fmt.Errorf("graph required")
+	}
+	if err := opts.Graph.Validate(); err != nil {
+		return nil, fmt.Errorf("graph validation failed: %w", err)
+	}
 	w := &Workflow{
 		name:        opts.Name,
 		description: opts.Description,
@@ -107,21 +113,19 @@ func (w *Workflow) Validate() error {
 	if w.graph == nil {
 		return fmt.Errorf("graph required")
 	}
-	startNode := w.graph.StartNode()
+	startNode := w.graph.Start()
 	if startNode == nil {
 		return fmt.Errorf("graph start task required")
 	}
-	for _, nodeName := range w.graph.NodeNames() {
-		node, ok := w.graph.GetNode(nodeName)
+	for _, nodeName := range w.graph.Names() {
+		node, ok := w.graph.Get(nodeName)
 		if !ok {
 			return fmt.Errorf("task %q not found", nodeName)
 		}
-		if _, exists := taskNames[nodeName]; !exists {
-			return fmt.Errorf("task %q not found", nodeName)
-		}
-		for _, edge := range node.Next {
-			if _, exists := taskNames[edge.To.Name()]; !exists {
-				return fmt.Errorf("task %q not found", edge.To.Name())
+		for _, edge := range node.Next() {
+			toTaskName := edge.To.TaskName()
+			if _, found := taskNames[toTaskName]; !found {
+				return fmt.Errorf("task %q not found", toTaskName)
 			}
 		}
 	}

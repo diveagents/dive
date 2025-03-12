@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/getstingrai/dive"
@@ -31,6 +32,18 @@ type taskState struct {
 	Error   error
 }
 
+type executionPath struct {
+	id          string
+	currentNode *workflow.Node
+}
+
+type pathUpdate struct {
+	pathID     string
+	taskOutput string
+	newPaths   []*executionPath
+	err        error
+}
+
 // Execution represents a single run of a workflow
 type Execution struct {
 	id          string                 // Unique identifier for this execution
@@ -48,7 +61,7 @@ type Execution struct {
 	childIDs    []string               // IDs of child executions
 	metadata    map[string]string      // Additional metadata about the execution
 	logger      slogger.Logger         // Logger for the execution
-	stream      events.Stream          // Stream of events for the execution
+	wg          sync.WaitGroup         // WaitGroup for the execution
 }
 
 type ExecutionOptions struct {
@@ -107,69 +120,78 @@ func (e *Execution) StartTime() time.Time {
 
 func (e *Execution) Run(ctx context.Context) error {
 	if e.status != StatusPending {
-		return fmt.Errorf("execution already started")
+		return fmt.Errorf("unexpected execution status: %s", e.status)
 	}
+	e.wg.Add(1)
+	defer e.wg.Done()
+
 	e.status = StatusRunning
-	e.stream = events.NewStream()
-
-	go func() {
-		if err := e.runWorkflow(ctx, e.stream); err != nil {
-			e.logger.Error("workflow execution failed", "error", err)
-			e.status = StatusFailed
-			e.err = err
-		}
-		e.status = StatusCompleted
-		e.endTime = time.Now()
-		e.stream.Close()
-		e.logger.Info("workflow execution completed", "execution_id", e.id)
-	}()
-
+	err := e.runWorkflow(ctx)
+	e.endTime = time.Now()
+	if err != nil {
+		e.logger.Error("workflow execution failed", "error", err)
+		e.status = StatusFailed
+		e.err = err
+		return err
+	}
+	e.logger.Info("workflow execution completed", "execution_id", e.id)
+	e.status = StatusCompleted
+	e.err = nil
 	return nil
 }
 
-func (e *Execution) runWorkflow(ctx context.Context, stream events.Stream) error {
-	publisher := stream.Publisher()
-	defer publisher.Close()
+func (e *Execution) Wait() error {
+	e.wg.Wait()
+	return e.err
+}
 
-	backgroundCtx := context.Background()
+func (e *Execution) runWorkflow(ctx context.Context) error {
 
 	graph := e.workflow.Graph()
 	totalUsage := llm.Usage{}
 
-	e.logger.Debug(
+	e.logger.Info(
 		"workflow execution started",
 		"workflow_name", e.workflow.Name(),
-		"start_node", graph.Start().Name(),
+		"start_node", graph.Start()[0].Name(),
 	)
 
-	node := graph.Start()
+	// Channel for path updates
+	updates := make(chan pathUpdate)
+	activePaths := make(map[string]*executionPath)
 
-	for {
-		task := node.Task
-
-		// Determine which agent should take the task
-		var agent dive.Agent
-		if task.Agent() != nil {
-			agent = task.Agent()
-		} else {
-			// Default to first agent if none assigned
-			agent = e.environment.Agents()[0]
+	// Start initial paths
+	for i, startNode := range graph.Start() {
+		initialPath := &executionPath{
+			id:          fmt.Sprintf("path-%d", i+1),
+			currentNode: startNode,
 		}
+		activePaths[initialPath.id] = initialPath
+		go e.runPath(ctx, initialPath, updates)
+	}
 
-		result, err := e.executeTask(ctx, task, agent)
-		if err != nil {
-			return err
-		}
-		e.taskOutputs[task.Name()] = result.Content
+	// Main control loop
+	for len(activePaths) > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case update := <-updates:
+			if update.err != nil {
+				return fmt.Errorf("path %s failed: %w", update.pathID, update.err)
+			}
 
-		nextEdges := node.Next
+			// Store task output
+			path := activePaths[update.pathID]
+			e.taskOutputs[path.currentNode.TaskName()] = update.taskOutput
 
-		if len(nextEdges) == 0 {
-			break
-		} else if len(nextEdges) == 1 {
-			node = nextEdges[0].To
-		} else {
-			return fmt.Errorf("multiple next edges")
+			// Remove completed path
+			delete(activePaths, update.pathID)
+
+			// Start any new paths
+			for _, newPath := range update.newPaths {
+				activePaths[newPath.id] = newPath
+				go e.runPath(ctx, newPath, updates)
+			}
 		}
 	}
 
@@ -178,12 +200,73 @@ func (e *Execution) runWorkflow(ctx context.Context, stream events.Stream) error
 		"workflow_name", e.workflow.Name(),
 		"total_usage", totalUsage,
 	)
-	publisher.Send(backgroundCtx, &events.Event{Type: "workflow.done"})
-
 	return nil
 }
 
-func (e *Execution) executeTask(ctx context.Context, task dive.Task, agent dive.Agent) (*dive.TaskResult, error) {
+func (e *Execution) runPath(ctx context.Context, path *executionPath, updates chan<- pathUpdate) {
+	nextPathID := 0
+	getNextPathID := func() string {
+		nextPathID++
+		return fmt.Sprintf("%s-%d", path.id, nextPathID)
+	}
+
+	logger := slogger.Ctx(ctx).
+		With("path_id", path.id).
+		With("execution_id", e.id)
+
+	logger.Info("running path", "node", path.currentNode.Name())
+
+	for {
+		// Get agent for current task
+		task := path.currentNode.Task()
+		var agent dive.Agent
+		if task.Agent() != nil {
+			agent = task.Agent()
+		} else {
+			agent = e.environment.Agents()[0]
+		}
+
+		// Execute the task
+		result, err := executeTask(ctx, task, agent)
+		if err != nil {
+			updates <- pathUpdate{pathID: path.id, err: err}
+			return
+		}
+
+		nextEdges := path.currentNode.Next()
+		var newPaths []*executionPath
+
+		// Handle path branching
+		if len(nextEdges) > 1 {
+			// Create new paths for all edges
+			for _, edge := range nextEdges {
+				newPaths = append(newPaths, &executionPath{
+					id:          getNextPathID(),
+					currentNode: edge.To,
+				})
+			}
+		} else if len(nextEdges) == 1 {
+			// Continue on same path
+			path.currentNode = nextEdges[0].To
+			newPaths = []*executionPath{path}
+		}
+
+		// Send update
+		updates <- pathUpdate{
+			pathID:     path.id,
+			taskOutput: result.Content,
+			newPaths:   newPaths,
+		}
+
+		// If this path continues (single next edge), loop continues
+		// Otherwise (no edges or multiple edges), this goroutine ends
+		if len(nextEdges) != 1 {
+			return
+		}
+	}
+}
+
+func executeTask(ctx context.Context, task dive.Task, agent dive.Agent) (*dive.TaskResult, error) {
 	stream, err := agent.Work(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)

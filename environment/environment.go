@@ -72,9 +72,19 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		executions:  executions,
 		logger:      opts.Logger,
 	}
+
+	// Phase 1: set environment on agents
 	for _, agent := range env.Agents() {
 		agent.SetEnvironment(env)
 	}
+
+	// Phase 2: start agents
+	for _, agent := range env.Agents() {
+		if runnableAgent, ok := agent.(dive.RunnableAgent); ok {
+			runnableAgent.Start(context.Background())
+		}
+	}
+
 	return env, nil
 }
 
@@ -141,19 +151,27 @@ func (e *Environment) StartWorkflow(
 	if _, exists := e.workflows[workflow.Name()]; !exists {
 		return nil, fmt.Errorf("workflow not found: %s", workflow.Name())
 	}
+
 	execution := NewExecution(ExecutionOptions{
 		ID:        uuid.New().String(),
 		Workflow:  workflow,
-		Status:    StatusRunning,
+		Status:    StatusPending,
 		StartTime: time.Now(),
 		Inputs:    inputs,
 		Logger:    e.logger,
 	})
 	e.executions[execution.ID()] = execution
 
-	// Run the workflow. This runs as soon as execution begins.
-	if err := execution.Run(ctx); err != nil {
-		return nil, err
-	}
+	go func() {
+		if err := execution.Run(ctx); err != nil {
+			e.logger.Error("workflow execution failed", "error", err)
+			return
+		}
+		e.logger.Info("workflow execution completed",
+			"execution_id", execution.ID(),
+			"workflow_name", workflow.Name(),
+		)
+	}()
+
 	return execution, nil
 }

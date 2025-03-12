@@ -933,9 +933,7 @@ func (a *Agent) doSomeWork() {
 	}
 
 	if a.activeTask == nil {
-		a.logger.Debug("no active task",
-			"agent", a.name,
-		)
+		a.logger.Debug("no active task", "agent", a.name)
 		return // Nothing to do!
 	}
 	stepName := a.activeTask.Task.Name()
