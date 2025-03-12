@@ -36,34 +36,29 @@ func TestNewEnvironment(t *testing.T) {
 		},
 	})
 
-	writePoem := workflow.NewTask(workflow.TaskOptions{
-		Name:           "Write a Poem",
-		ExpectedOutput: "A haiku about the fall",
-		Agent:          a,
-	})
-
-	writeSummary := workflow.NewTask(workflow.TaskOptions{
-		Name:           "Write a summary",
-		ExpectedOutput: "A summary of the poem",
-		Agent:          a,
-	})
-
-	graph := workflow.NewGraph(workflow.GraphOptions{
-		Nodes: map[string]*workflow.Node{
-			"Write Poem": workflow.NewNode(workflow.NodeOptions{
-				IsStart: true,
-				Task:    writePoem,
-				Next:    []*workflow.Edge{{To: "Write Summary"}},
-			}),
-			"Write Summary": workflow.NewNode(workflow.NodeOptions{
-				Task: writeSummary,
-			}),
-		},
-	})
-
 	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
-		Name:  "Poetry Writing",
-		Graph: graph,
+		Name: "Poetry Writing",
+		Graph: workflow.NewGraph(workflow.GraphOptions{
+			Nodes: map[string]*workflow.Node{
+				"Write Poem": workflow.NewNode(workflow.NodeOptions{
+					IsStart: true,
+					Task: workflow.NewTask(workflow.TaskOptions{
+						Name:           "Write a Poem",
+						ExpectedOutput: "A haiku about the fall",
+						Agent:          a,
+					}),
+					Next: []*workflow.Edge{{To: "Write Summary"}},
+				}),
+				"Write Summary": workflow.NewNode(workflow.NodeOptions{
+					Task: workflow.NewTask(workflow.TaskOptions{
+						Name:           "Write a summary",
+						ExpectedOutput: "A summary of the poem",
+						Agent:          a,
+					}),
+					// Next: []*workflow.Edge{{To: "Write Poem"}},
+				}),
+			},
+		}),
 	})
 	require.NoError(t, err)
 
