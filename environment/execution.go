@@ -30,7 +30,20 @@ type PathState struct {
 	StartTime   time.Time
 	EndTime     time.Time
 	Error       error
-	TaskOutputs map[string]string
+	NodeOutputs map[string]string
+}
+
+// Copy returns a shallow copy of the path state.
+func (p *PathState) Copy() *PathState {
+	return &PathState{
+		ID:          p.ID,
+		Status:      p.Status,
+		CurrentNode: p.CurrentNode,
+		StartTime:   p.StartTime,
+		EndTime:     p.EndTime,
+		Error:       p.Error,
+		NodeOutputs: p.NodeOutputs,
+	}
 }
 
 // Status represents the current state of an execution
@@ -59,9 +72,11 @@ type executionPath struct {
 
 type pathUpdate struct {
 	pathID     string
-	taskOutput string
+	nodeName   string
+	nodeOutput string
 	newPaths   []*executionPath
 	err        error
+	isDone     bool // true if this path should be removed from active paths
 }
 
 // Execution represents a single run of a workflow
@@ -106,13 +121,10 @@ func NewExecution(opts ExecutionOptions) *Execution {
 	if opts.Status == "" {
 		opts.Status = StatusPending
 	}
-	if opts.StartTime.IsZero() {
-		opts.StartTime = time.Now()
-	}
 	if opts.Logger == nil {
 		opts.Logger = slogger.NewDevNullLogger()
 	}
-	return &Execution{
+	execution := &Execution{
 		id:          opts.ID,
 		environment: opts.Environment,
 		workflow:    opts.Workflow,
@@ -129,6 +141,8 @@ func NewExecution(opts ExecutionOptions) *Execution {
 		mutex:       sync.RWMutex{},
 		doneWg:      sync.WaitGroup{},
 	}
+	execution.doneWg.Add(1)
+	return execution
 }
 
 func (e *Execution) ID() string {
@@ -144,14 +158,23 @@ func (e *Execution) Environment() *Environment {
 }
 
 func (e *Execution) Status() Status {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+
 	return e.status
 }
 
 func (e *Execution) StartTime() time.Time {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+
 	return e.startTime
 }
 
 func (e *Execution) EndTime() time.Time {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+
 	return e.endTime
 }
 
@@ -168,7 +191,7 @@ func (e *Execution) Run(ctx context.Context) error {
 		return fmt.Errorf("execution can only be run from pending state, current status: %s", e.status)
 	}
 	e.status = StatusRunning
-	e.doneWg.Add(1) // Add to wait group before starting execution
+	e.startTime = time.Now()
 	e.mutex.Unlock()
 
 	defer e.doneWg.Done() // Ensure we always mark as done when execution completes
@@ -212,8 +235,7 @@ func (e *Execution) run(ctx context.Context) error {
 			currentNode: startNode,
 		}
 		activePaths[initialPath.id] = initialPath
-		pathState := e.addPath(initialPath)
-		pathState.Status = PathStatusRunning
+		e.addPath(initialPath)
 		go e.runPath(ctx, graph, initialPath, updates)
 		e.logger.Info("started initial path", "path_id", initialPath.id)
 	}
@@ -237,21 +259,23 @@ func (e *Execution) run(ctx context.Context) error {
 			// Store task output and update path state
 			path := activePaths[update.pathID]
 			e.updatePathState(update.pathID, func(state *PathState) {
-				state.TaskOutputs[path.currentNode.TaskName()] = update.taskOutput
-				if len(update.newPaths) == 0 {
+				fmt.Println("updatePathState", update.pathID, path.currentNode.TaskName(), update.nodeOutput)
+				state.NodeOutputs[update.nodeName] = update.nodeOutput
+				if update.isDone {
 					state.Status = PathStatusCompleted
 					state.EndTime = time.Now()
 				}
 			})
 
-			// Remove completed path
-			delete(activePaths, update.pathID)
+			// Remove path if it's done
+			if update.isDone {
+				delete(activePaths, update.pathID)
+			}
 
 			// Start any new paths
 			for _, newPath := range update.newPaths {
 				activePaths[newPath.id] = newPath
-				pathState := e.addPath(newPath)
-				pathState.Status = PathStatusRunning
+				e.addPath(newPath)
 				go e.runPath(ctx, graph, newPath, updates)
 			}
 		}
@@ -314,7 +338,8 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 
 	for {
 		// Get agent for current task
-		task := path.currentNode.Task()
+		currentNode := path.currentNode
+		task := currentNode.Task()
 		var agent dive.Agent
 		if task.Agent() != nil {
 			agent = task.Agent()
@@ -324,7 +349,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 
 		// Update path state with current task
 		e.updatePathState(path.id, func(state *PathState) {
-			state.CurrentNode = path.currentNode
+			state.CurrentNode = currentNode
 		})
 
 		result, err := executeTask(ctx, agent, task)
@@ -342,7 +367,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			return
 		}
 
-		nextEdges := path.currentNode.Next()
+		nextEdges := currentNode.Next()
 		var newPaths []*executionPath
 		var pathError error
 
@@ -368,8 +393,14 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 				pathError = fmt.Errorf("next node not found: %s", nextEdges[0].To)
 				logger.Error("next node not found", "node", nextEdges[0].To)
 			} else {
+				updates <- pathUpdate{
+					pathID:     path.id,
+					nodeName:   currentNode.Name(),
+					nodeOutput: result.Content,
+					newPaths:   nil,
+					isDone:     false, // Explicitly indicate path continues
+				}
 				path.currentNode = nextNode
-				// Don't create new paths for single edges, just continue in this goroutine
 				continue
 			}
 		}
@@ -384,11 +415,13 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			return
 		}
 
-		// Send update
+		// Send final update for this path
 		updates <- pathUpdate{
 			pathID:     path.id,
-			taskOutput: result.Content,
+			nodeName:   currentNode.Name(),
+			nodeOutput: result.Content,
 			newPaths:   newPaths,
+			isDone:     true,
 		}
 
 		// If this path continues (single next edge), loop continues
@@ -423,7 +456,7 @@ func (e *Execution) addPath(path *executionPath) *PathState {
 		Status:      PathStatusPending,
 		CurrentNode: path.currentNode,
 		StartTime:   time.Now(),
-		TaskOutputs: make(map[string]string),
+		NodeOutputs: make(map[string]string),
 	}
 	e.paths[path.id] = state
 	return state
@@ -437,18 +470,16 @@ func (e *Execution) GetError() error {
 	return e.err
 }
 
-// ActivePaths returns the number of active paths
-func (e *Execution) ActivePaths() int {
+// PathStates returns a copy of all path states in the execution.
+func (e *Execution) PathStates() []*PathState {
 	e.mutex.RLock()
 	defer e.mutex.RUnlock()
 
-	count := 0
+	paths := make([]*PathState, 0, len(e.paths))
 	for _, state := range e.paths {
-		if state.Status == PathStatusRunning {
-			count++
-		}
+		paths = append(paths, state.Copy())
 	}
-	return count
+	return paths
 }
 
 // ExecutionStats provides statistics about the execution
@@ -491,21 +522,4 @@ func (e *Execution) GetStats() ExecutionStats {
 	}
 
 	return stats
-}
-
-// GetPathOutputs returns a map of path IDs to their task outputs
-func (e *Execution) GetPathOutputs() map[string]map[string]string {
-	e.mutex.RLock()
-	defer e.mutex.RUnlock()
-
-	outputs := make(map[string]map[string]string)
-	for id, state := range e.paths {
-		if len(state.TaskOutputs) > 0 {
-			outputs[id] = make(map[string]string)
-			for task, output := range state.TaskOutputs {
-				outputs[id][task] = output
-			}
-		}
-	}
-	return outputs
 }

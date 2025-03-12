@@ -2,7 +2,6 @@ package environment
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/getstingrai/dive"
@@ -21,15 +20,20 @@ func TestNewEnvironment(t *testing.T) {
 	a := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "Poet Laureate",
 		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
-			fmt.Println("WORK", task.Name())
 			tasks = append(tasks, task)
 			stream := events.NewStream()
 			go func() {
 				publisher := stream.Publisher()
 				defer publisher.Close()
+				var content string
+				if task.Name() == "Write a Poem" {
+					content = "A haiku about the fall"
+				} else if task.Name() == "Write a summary" {
+					content = "A summary of that great poem"
+				}
 				publisher.Send(ctx, &events.Event{
 					Type:    "task.result",
-					Payload: &dive.TaskResult{Content: "A haiku about the fall"},
+					Payload: &dive.TaskResult{Content: content},
 				})
 			}()
 			return stream, nil
@@ -55,7 +59,6 @@ func TestNewEnvironment(t *testing.T) {
 						ExpectedOutput: "A summary of the poem",
 						Agent:          a,
 					}),
-					// Next: []*workflow.Edge{{To: "Write Poem"}},
 				}),
 			},
 		}),
@@ -85,4 +88,12 @@ func TestNewEnvironment(t *testing.T) {
 	t2 := tasks[1]
 	require.Equal(t, "Write a Poem", t1.Name())
 	require.Equal(t, "Write a summary", t2.Name())
+
+	pathStates := execution.PathStates()
+	require.Equal(t, 1, len(pathStates))
+	s0 := pathStates[0]
+	require.Equal(t, PathStatusCompleted, s0.Status)
+	require.Equal(t, "Write Summary", s0.CurrentNode.Name())
+	require.Equal(t, "A summary of that great poem", s0.NodeOutputs["Write Summary"])
+	require.Equal(t, "A haiku about the fall", s0.NodeOutputs["Write Poem"])
 }

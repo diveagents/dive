@@ -147,32 +147,28 @@ func (e *Environment) StartWorkflow(
 	ctx context.Context,
 	workflow *workflow.Workflow,
 	inputs map[string]interface{},
-) (*ExecutionHandle, error) {
+) (*Execution, error) {
 	if _, exists := e.workflows[workflow.Name()]; !exists {
 		return nil, fmt.Errorf("workflow not found: %s", workflow.Name())
 	}
 
 	execution := NewExecution(ExecutionOptions{
-		ID:        uuid.New().String(),
-		Workflow:  workflow,
-		Status:    StatusPending,
-		StartTime: time.Now(),
-		Inputs:    inputs,
-		Logger:    e.logger,
+		ID:          uuid.New().String(),
+		Environment: e,
+		Workflow:    workflow,
+		Status:      StatusPending,
+		StartTime:   time.Now(),
+		Inputs:      inputs,
+		Logger:      e.logger,
 	})
 	e.executions[execution.ID()] = execution
 
-	handle := &ExecutionHandle{execution: execution}
-	handle.wg.Add(1)
-
 	go func() {
-		defer handle.wg.Done()
-
 		if err := execution.Run(ctx); err != nil {
 			e.logger.Error("workflow execution failed", "error", err)
 			return
 		}
 	}()
 
-	return handle, nil
+	return execution, nil
 }
