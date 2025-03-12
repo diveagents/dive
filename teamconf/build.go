@@ -63,8 +63,8 @@ func WithRepository(repo document.Repository) BuildOption {
 }
 
 func buildAgent(
-	agentDef agent.Agent,
-	globalConfig agent.Config,
+	agentDef AgentConfig,
+	globalConfig Config,
 	toolsMap map[string]llm.Tool,
 	logger slogger.Logger,
 	variables map[string]interface{},
@@ -119,15 +119,7 @@ func buildAgent(
 		agentTools = append(agentTools, tool)
 	}
 
-	var taskTimeout, chatTimeout time.Duration
-	if agentDef.TaskTimeout != "" {
-		var err error
-		taskTimeout, err = time.ParseDuration(agentDef.TaskTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("invalid task timeout: %w", err)
-		}
-	}
-
+	var chatTimeout time.Duration
 	if agentDef.ChatTimeout != "" {
 		var err error
 		chatTimeout, err = time.ParseDuration(agentDef.ChatTimeout)
@@ -150,7 +142,6 @@ func buildAgent(
 		AcceptedEvents:     agentDef.AcceptedEvents,
 		LLM:                llmProvider,
 		Tools:              agentTools,
-		TaskTimeout:        taskTimeout,
 		ChatTimeout:        chatTimeout,
 		CacheControl:       cacheControl,
 		LogLevel:           globalConfig.LogLevel,
@@ -160,11 +151,7 @@ func buildAgent(
 	return agent, nil
 }
 
-func buildTask(
-	taskDef workflow.Task,
-	agents []dive.Agent,
-	variables map[string]interface{},
-) (*workflow.Task, error) {
+func buildTask(taskDef Task, agents []dive.Agent, variables map[string]interface{}) (*workflow.Task, error) {
 	var timeout time.Duration
 	if taskDef.Timeout != "" {
 		var err error
@@ -176,36 +163,28 @@ func buildTask(
 
 	// Find assigned agent if specified
 	var assignedAgent dive.Agent
-	if taskDef.AssignedAgent != "" {
+	if taskDef.Agent != "" {
 		for _, agent := range agents {
-			if agent.Name() == taskDef.AssignedAgent {
+			if agent.Name() == taskDef.Agent {
 				assignedAgent = agent
 				break
 			}
 		}
 		if assignedAgent == nil {
-			return nil, fmt.Errorf("assigned agent %s not found", taskDef.AssignedAgent)
+			return nil, fmt.Errorf("assigned agent %s not found", taskDef.Agent)
 		}
-	}
-
-	// Convert document names to document refs
-	var documentRefs []document.DocumentRef
-	for _, docName := range taskDef.Documents {
-		documentRefs = append(documentRefs, document.DocumentRef{
-			Name: docName,
-		})
 	}
 
 	return workflow.NewTask(workflow.TaskOptions{
 		Name:           taskDef.Name,
 		Description:    taskDef.Description,
+		Kind:           taskDef.Kind,
+		Inputs:         map[string]workflow.Input{},
+		Outputs:        map[string]workflow.Output{},
 		ExpectedOutput: taskDef.ExpectedOutput,
-		Dependencies:   taskDef.Dependencies,
-		OutputFormat:   workflow.OutputFormat(taskDef.OutputFormat),
-		AssignedAgent:  assignedAgent,
+		Agent:          assignedAgent,
+		OutputFormat:   dive.OutputFormat(taskDef.OutputFormat),
 		OutputFile:     taskDef.OutputFile,
 		Timeout:        timeout,
-		Context:        taskDef.Context,
-		DocumentRefs:   documentRefs,
 	}), nil
 }

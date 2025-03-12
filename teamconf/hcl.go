@@ -13,12 +13,15 @@ import (
 type HCLTeam struct {
 	Name        string        `hcl:"name,optional"`
 	Description string        `hcl:"description,optional"`
-	Agents      []Agent       `hcl:"agent,block"`
+	Agents      []AgentConfig `hcl:"agent,block"`
 	Tasks       []Task        `hcl:"task,block"`
 	Config      Config        `hcl:"config,block"`
 	Variables   []HCLVariable `hcl:"variable,block"`
 	Tools       []HCLTool     `hcl:"tool,block"`
 	Documents   []Document    `hcl:"document,block"`
+	Triggers    []Trigger     `hcl:"trigger,block"`
+	Schedules   []Schedule    `hcl:"schedule,block"`
+	Workflows   []Workflow    `hcl:"workflow,block"`
 }
 
 // HCLTool represents a tool definition in HCL
@@ -57,16 +60,16 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	}
 
 	variableValues := make(VariableValues, len(vars))
-	for k, v := range vars {
-		switch v.(type) {
+	for k, val := range vars {
+		switch v := val.(type) {
 		case string:
-			variableValues[k] = cty.StringVal(v.(string))
+			variableValues[k] = cty.StringVal(v)
 		case int:
-			variableValues[k] = cty.NumberIntVal(int64(v.(int)))
+			variableValues[k] = cty.NumberIntVal(int64(v))
 		case float64:
-			variableValues[k] = cty.NumberFloatVal(v.(float64))
+			variableValues[k] = cty.NumberFloatVal(v)
 		case bool:
-			variableValues[k] = cty.BoolVal(v.(bool))
+			variableValues[k] = cty.BoolVal(v)
 		default:
 			return nil, fmt.Errorf("unsupported variable type: %T (key: %s)", v, k)
 		}
@@ -81,6 +84,9 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			{Type: "config", LabelNames: []string{}},
 			{Type: "tool", LabelNames: []string{"name"}},
 			{Type: "document", LabelNames: []string{"name"}},
+			{Type: "trigger", LabelNames: []string{"name"}},
+			{Type: "schedule", LabelNames: []string{"name"}},
+			{Type: "workflow", LabelNames: []string{"name"}},
 		},
 		Attributes: []hcl.AttributeSchema{
 			{Name: "name", Required: false},
@@ -183,6 +189,9 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			{Type: "variable", LabelNames: []string{"name"}},
 			{Type: "tool", LabelNames: []string{"name"}},
 			{Type: "document", LabelNames: []string{"name"}},
+			{Type: "trigger", LabelNames: []string{"name"}},
+			{Type: "schedule", LabelNames: []string{"name"}},
+			{Type: "workflow", LabelNames: []string{"name"}},
 		},
 		Attributes: []hcl.AttributeSchema{
 			{Name: "name", Required: false},
@@ -296,7 +305,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			def.Documents = append(def.Documents, doc)
 
 		case "agent":
-			var agent Agent
+			var agent AgentConfig
 			agent.Name = block.Labels[0]
 
 			// Get the full content first
@@ -316,6 +325,7 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					{Name: "chat_timeout", Required: false},
 					{Name: "tool_iteration_limit", Required: false},
 					{Name: "log_level", Required: false},
+					{Name: "memory", Required: false},
 				},
 			})
 			if diags.HasErrors() {
@@ -382,14 +392,11 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 							return nil, fmt.Errorf("tool must be a string")
 						}
 						agent.Tools = append(agent.Tools, v.AsString())
+						fmt.Println("TOOL!", v.AsString())
 					}
 				case "cache_control":
 					if val.Type() == cty.String {
 						agent.CacheControl = val.AsString()
-					}
-				case "step_timeout":
-					if val.Type() == cty.String {
-						agent.StepTimeout = val.AsString()
 					}
 				case "chat_timeout":
 					if val.Type() == cty.String {
@@ -404,6 +411,25 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						agent.LogLevel = val.AsString()
 					}
+				case "memory":
+					if !val.Type().IsObjectType() {
+						return nil, fmt.Errorf("memory must be an object")
+					}
+
+					attrs := val.AsValueMap()
+
+					if typeVal, ok := attrs["type"]; ok && typeVal.Type() == cty.String {
+						agent.Memory.Type = typeVal.AsString()
+					}
+
+					if collectionVal, ok := attrs["collection"]; ok && collectionVal.Type() == cty.String {
+						agent.Memory.Collection = collectionVal.AsString()
+					}
+
+					if retentionVal, ok := attrs["retention_days"]; ok && retentionVal.Type() == cty.Number {
+						retention, _ := retentionVal.AsBigFloat().Int64()
+						agent.Memory.RetentionDays = int(retention)
+					}
 				}
 			}
 
@@ -417,14 +443,17 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			content, diags := block.Body.Content(&hcl.BodySchema{
 				Attributes: []hcl.AttributeSchema{
 					{Name: "description", Required: false},
+					{Name: "type", Required: false},
+					{Name: "operation", Required: false},
 					{Name: "expected_output", Required: false},
 					{Name: "output_format", Required: false},
-					{Name: "assigned_agent", Required: false},
-					{Name: "dependencies", Required: false},
-					{Name: "documents", Required: false},
+					{Name: "agent", Required: false},
 					{Name: "output_file", Required: false},
 					{Name: "timeout", Required: false},
-					{Name: "context", Required: false},
+				},
+				Blocks: []hcl.BlockHeaderSchema{
+					{Type: "input", LabelNames: []string{"name"}},
+					{Type: "output", LabelNames: []string{"name"}},
 				},
 			})
 			if diags.HasErrors() {
@@ -443,6 +472,14 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						task.Description = val.AsString()
 					}
+				case "type":
+					if val.Type() == cty.String {
+						task.Type = val.AsString()
+					}
+				case "operation":
+					if val.Type() == cty.String {
+						task.Operation = val.AsString()
+					}
 				case "expected_output":
 					if val.Type() == cty.String {
 						task.ExpectedOutput = val.AsString()
@@ -451,31 +488,9 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						task.OutputFormat = val.AsString()
 					}
-				case "assigned_agent":
+				case "agent":
 					if val.Type() == cty.String {
-						task.AssignedAgent = val.AsString()
-					}
-				case "dependencies":
-					if !val.CanIterateElements() {
-						return nil, fmt.Errorf("dependencies must be a list")
-					}
-					for it := val.ElementIterator(); it.Next(); {
-						_, v := it.Element()
-						if v.Type() != cty.String {
-							return nil, fmt.Errorf("dependency must be a string")
-						}
-						task.Dependencies = append(task.Dependencies, v.AsString())
-					}
-				case "documents":
-					if !val.CanIterateElements() {
-						return nil, fmt.Errorf("documents must be a list")
-					}
-					for it := val.ElementIterator(); it.Next(); {
-						_, v := it.Element()
-						if v.Type() != cty.String {
-							return nil, fmt.Errorf("document must be a string")
-						}
-						task.Documents = append(task.Documents, v.AsString())
+						task.Agent = val.AsString()
 					}
 				case "output_file":
 					if val.Type() == cty.String {
@@ -485,11 +500,35 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 					if val.Type() == cty.String {
 						task.Timeout = val.AsString()
 					}
-				case "context":
-					if val.Type() == cty.String {
-						task.Context = val.AsString()
-					}
 				}
+			}
+
+			// Process input blocks
+			task.Inputs = make(map[string]TaskInput)
+			for _, block := range content.Blocks {
+				if block.Type != "input" {
+					continue
+				}
+
+				var input TaskInput
+				if diags := gohcl.DecodeBody(block.Body, evalCtx, &input); diags.HasErrors() {
+					return nil, fmt.Errorf("failed to decode input block: %s", diags.Error())
+				}
+				task.Inputs[block.Labels[0]] = input
+			}
+
+			// Process output blocks
+			task.Outputs = make(map[string]TaskOutput)
+			for _, block := range content.Blocks {
+				if block.Type != "output" {
+					continue
+				}
+
+				var output TaskOutput
+				if diags := gohcl.DecodeBody(block.Body, evalCtx, &output); diags.HasErrors() {
+					return nil, fmt.Errorf("failed to decode output block: %s", diags.Error())
+				}
+				task.Outputs[block.Labels[0]] = output
 			}
 
 			def.Tasks = append(def.Tasks, task)
@@ -505,6 +544,31 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 				tool.Enabled = true
 			}
 			def.Tools = append(def.Tools, tool)
+			fmt.Println("ADDED TOOL", tool.Name, tool)
+
+		case "trigger":
+			var trigger Trigger
+			trigger.Name = block.Labels[0]
+			if diags := gohcl.DecodeBody(block.Body, evalCtx, &trigger); diags.HasErrors() {
+				return nil, fmt.Errorf("failed to decode trigger block: %s", diags.Error())
+			}
+			def.Triggers = append(def.Triggers, trigger)
+
+		case "schedule":
+			var schedule Schedule
+			schedule.Name = block.Labels[0]
+			if diags := gohcl.DecodeBody(block.Body, evalCtx, &schedule); diags.HasErrors() {
+				return nil, fmt.Errorf("failed to decode schedule block: %s", diags.Error())
+			}
+			def.Schedules = append(def.Schedules, schedule)
+
+		case "workflow":
+			var workflow Workflow
+			workflow.Name = block.Labels[0]
+			if diags := gohcl.DecodeBody(block.Body, evalCtx, &workflow); diags.HasErrors() {
+				return nil, fmt.Errorf("failed to decode workflow block: %s", diags.Error())
+			}
+			def.Workflows = append(def.Workflows, workflow)
 		}
 	}
 	return &def, nil

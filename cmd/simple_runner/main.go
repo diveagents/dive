@@ -5,11 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/teamconf"
 )
 
@@ -57,24 +55,22 @@ func main() {
 
 	ctx := context.Background()
 
-	logger := slogger.New(slogger.LevelFromString(logLevel))
-
-	team, err := teamconf.TeamFromFile(filePath,
-		teamconf.WithLogger(logger),
-		teamconf.WithVariables(vars),
-	)
+	env, err := teamconf.LoadDirectory(filePath)
 	if err != nil {
 		fatal(err.Error())
 	}
-	if err := team.Start(ctx); err != nil {
+
+	workflow, err := env.GetWorkflow("workflow")
+	if err != nil {
 		fatal(err.Error())
 	}
-	defer team.Stop(ctx)
 
-	fmt.Println("Starting", boldStyle.Sprint(team.Name()))
-
-	stream, err := team.Work(ctx)
+	execution, err := env.StartWorkflow(ctx, workflow, vars)
 	if err != nil {
+		fatal(err.Error())
+	}
+
+	if err := execution.Wait(); err != nil {
 		fatal(err.Error())
 	}
 
@@ -84,29 +80,4 @@ func main() {
 		}
 	}
 
-	saveOutput := func(name string, result string) {
-		if outDir == "" {
-			return
-		}
-		dstPath := filepath.Join(outDir, name+".txt")
-		if err := os.WriteFile(dstPath, []byte(result), 0644); err != nil {
-			fatal("Error: failed to save output for %s: %s", name, err)
-		}
-		fmt.Println(infoStyle.Sprint("Saved output to " + dstPath))
-	}
-
-	for event := range stream.Channel() {
-		switch event.Type {
-		case "step.result":
-			resultText := "\n" + boldStyle.Sprint(event.StepName+":") + "\n" +
-				successStyle.Sprint(event.StepResult.Content) + "\n"
-			fmt.Println(resultText)
-			saveOutput(event.StepName, event.StepResult.Content)
-
-		case "step.error":
-			fmt.Println(boldStyle.Sprint(event.StepName+":") + "\n")
-			fmt.Println(errorStyle.Sprint(event.Error) + "\n")
-			fatal(event.Error)
-		}
-	}
 }

@@ -28,11 +28,7 @@ func initializeTools(toolConfigs map[string]map[string]interface{}) (map[string]
 
 	// Create a set of enabled tools for quick lookup
 	enabledToolsSet := make(map[string]bool)
-	for _, tool := range toolConfigs {
-		name, ok := tool["name"].(string)
-		if !ok {
-			return nil, fmt.Errorf("tool name is missing")
-		}
+	for name := range toolConfigs {
 		enabledToolsSet[name] = true
 	}
 

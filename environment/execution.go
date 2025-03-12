@@ -58,13 +58,6 @@ const (
 	StatusCanceled  Status = "canceled"
 )
 
-type taskState struct {
-	Task    dive.Task
-	Status  dive.TaskStatus
-	Started time.Time
-	Error   error
-}
-
 type executionPath struct {
 	id          string
 	currentNode *workflow.Node
