@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/agent"
@@ -25,15 +24,13 @@ func TestNewEnvironment(t *testing.T) {
 			fmt.Println("WORK", task.Name())
 			tasks = append(tasks, task)
 			stream := events.NewStream()
-			publisher := stream.Publisher()
 			go func() {
+				publisher := stream.Publisher()
 				defer publisher.Close()
 				publisher.Send(ctx, &events.Event{
 					Type:    "task.result",
 					Payload: &dive.TaskResult{Content: "A haiku about the fall"},
 				})
-				time.Sleep(time.Second * 5)
-				fmt.Println("exiting...")
 			}()
 			return stream, nil
 		},
@@ -54,11 +51,9 @@ func TestNewEnvironment(t *testing.T) {
 	graph := workflow.NewGraph(workflow.GraphOptions{
 		Nodes: map[string]*workflow.Node{
 			"Write Poem": workflow.NewNode(workflow.NodeOptions{
-				Task:    writePoem,
 				IsStart: true,
-				Next: []*workflow.Edge{
-					{To: "Write Summary"},
-				},
+				Task:    writePoem,
+				Next:    []*workflow.Edge{{To: "Write Summary"}},
 			}),
 			"Write Summary": workflow.NewNode(workflow.NodeOptions{
 				Task: writeSummary,
@@ -68,7 +63,6 @@ func TestNewEnvironment(t *testing.T) {
 
 	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name:  "Poetry Writing",
-		Tasks: []dive.Task{writePoem, writeSummary},
 		Graph: graph,
 	})
 	require.NoError(t, err)

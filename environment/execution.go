@@ -195,6 +195,8 @@ func (e *Execution) runWorkflow(ctx context.Context) error {
 	return nil
 }
 
+// Runs a single execution path in its own goroutine. Returns when the path
+// completes, fails, or splits into multiple new paths.
 func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *executionPath, updates chan<- pathUpdate) {
 	nextPathID := 0
 	getNextPathID := func() string {
@@ -218,8 +220,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			agent = e.environment.Agents()[0]
 		}
 
-		// Execute the task
-		result, err := executeTask(ctx, task, agent)
+		result, err := executeTask(ctx, agent, task)
 		if err != nil {
 			updates <- pathUpdate{pathID: path.id, err: err}
 			return
@@ -250,7 +251,8 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 				continue
 			}
 			path.currentNode = nextNode
-			newPaths = []*executionPath{path}
+			// Don't create new paths for single edges, just continue in this goroutine
+			continue
 		}
 
 		// Send update
@@ -268,7 +270,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 	}
 }
 
-func executeTask(ctx context.Context, task dive.Task, agent dive.Agent) (*dive.TaskResult, error) {
+func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*dive.TaskResult, error) {
 	stream, err := agent.Work(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)
@@ -281,67 +283,6 @@ func executeTask(ctx context.Context, task dive.Task, agent dive.Agent) (*dive.T
 	}
 	return taskResult, nil
 }
-
-// // Store defines the interface for persisting and retrieving executions
-// type Store interface {
-// 	// Create a new execution
-// 	CreateExecution(ctx context.Context, execution *Execution) error
-
-// 	// Get an execution by ID
-// 	GetExecution(ctx context.Context, id string) (*Execution, error)
-
-// 	// Update an existing execution
-// 	UpdateExecution(ctx context.Context, execution *Execution) error
-
-// 	// List executions with optional filters
-// 	ListExecutions(ctx context.Context, filters map[string]interface{}) ([]*Execution, error)
-
-// 	// Delete an execution and its history
-// 	DeleteExecution(ctx context.Context, id string) error
-// }
-
-// // Runner manages workflow executions
-// type Runner interface {
-// 	// Start a new workflow execution
-// 	StartExecution(ctx context.Context, workflow *Workflow, inputs map[string]interface{}) (*Execution, error)
-
-// 	// Get the current state of an execution
-// 	GetExecutionState(ctx context.Context, executionID string) (*Execution, error)
-
-// 	// Pause a running execution
-// 	PauseExecution(ctx context.Context, executionID string) error
-
-// 	// Resume a paused execution
-// 	ResumeExecution(ctx context.Context, executionID string) error
-
-// 	// Cancel a running execution
-// 	CancelExecution(ctx context.Context, executionID string) error
-
-// 	// List all executions
-// 	ListExecutions(ctx context.Context) ([]*Execution, error)
-// }
-
-// // Options for configuring a new execution runner
-// type RunnerOptions struct {
-// 	Store   Store
-// 	Logger  slogger.Logger
-// 	Metrics MetricsCollector
-// }
-
-// // MetricsCollector defines the interface for collecting execution metrics
-// type MetricsCollector interface {
-// 	// Record the start of an execution
-// 	RecordExecutionStart(execution *Execution)
-
-// 	// Record the completion of an execution
-// 	RecordExecutionComplete(execution *Execution)
-
-// 	// Record task state changes
-// 	RecordTaskStateChange(execution *Execution, taskName string, oldState, newState dive.TaskStatus)
-
-// 	// Record execution errors
-// 	RecordExecutionError(execution *Execution, err error)
-// }
 
 func TaskNames(tasks []dive.Task) []string {
 	var taskNames []string

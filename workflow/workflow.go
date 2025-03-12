@@ -26,17 +26,16 @@ type Output struct {
 type Workflow struct {
 	name        string
 	description string
-	tasks       []dive.Task
 	inputs      map[string]Input
 	outputs     map[string]Output
 	graph       *Graph
+	tasks       []dive.Task
 }
 
 // WorkflowOptions configures a new workflow
 type WorkflowOptions struct {
 	Name        string
 	Description string
-	Tasks       []dive.Task
 	Inputs      map[string]Input
 	Outputs     map[string]Output
 	Graph       *Graph
@@ -56,7 +55,6 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 	w := &Workflow{
 		name:        opts.Name,
 		description: opts.Description,
-		tasks:       opts.Tasks,
 		inputs:      opts.Inputs,
 		outputs:     opts.Outputs,
 		graph:       opts.Graph,
@@ -96,26 +94,27 @@ func (w *Workflow) Validate() error {
 	if w.name == "" {
 		return fmt.Errorf("workflow name required")
 	}
-	if len(w.tasks) == 0 {
-		return fmt.Errorf("workflow must have at least one task")
-	}
-	taskNames := make(map[string]bool, len(w.tasks))
-	for _, task := range w.tasks {
-		taskName := task.Name()
-		if taskName == "" {
-			return fmt.Errorf("task name required")
-		}
-		if _, exists := taskNames[taskName]; exists {
-			return fmt.Errorf("duplicate task name %q", taskName)
-		}
-		taskNames[taskName] = true
-	}
+	// taskNames := make(map[string]bool, len(w.tasks))
+	// for _, task := range w.tasks {
+	// 	taskName := task.Name()
+	// 	if taskName == "" {
+	// 		return fmt.Errorf("task name required")
+	// 	}
+	// 	if _, exists := taskNames[taskName]; exists {
+	// 		return fmt.Errorf("duplicate task name %q", taskName)
+	// 	}
+	// 	taskNames[taskName] = true
+	// }
 	if w.graph == nil {
 		return fmt.Errorf("graph required")
 	}
 	startNode := w.graph.Start()
 	if startNode == nil {
 		return fmt.Errorf("graph start task required")
+	}
+	tasksMap := map[string]dive.Task{}
+	for _, node := range w.graph.nodes {
+		tasksMap[node.Task().Name()] = node.Task()
 	}
 	for _, nodeName := range w.graph.Names() {
 		node, ok := w.graph.Get(nodeName)
@@ -130,10 +129,13 @@ func (w *Workflow) Validate() error {
 			if targetNode.TaskName() == "" {
 				return fmt.Errorf("task %q has no name", edge.To)
 			}
-			if _, found := taskNames[targetNode.TaskName()]; !found {
+			if _, found := tasksMap[targetNode.TaskName()]; !found {
 				return fmt.Errorf("task %q not found (3)", targetNode.TaskName())
 			}
 		}
+	}
+	for _, task := range tasksMap {
+		w.tasks = append(w.tasks, task)
 	}
 	return nil
 }
