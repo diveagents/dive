@@ -37,8 +37,8 @@ func (t *Trigger) Unsubscribe(workflow *workflow.Workflow) error {
 	return nil
 }
 
-func (t *Trigger) Fire(ctx context.Context, input map[string]interface{}) ([]*Execution, error) {
-	var executions []*Execution
+func (t *Trigger) Fire(ctx context.Context, input map[string]interface{}) ([]*ExecutionHandle, error) {
+	var executions []*ExecutionHandle
 	for _, w := range t.workflows {
 		execution, err := t.env.StartWorkflow(ctx, w, input)
 		if err != nil {

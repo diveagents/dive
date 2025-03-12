@@ -3,7 +3,6 @@ package environment
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/getstingrai/dive"
@@ -61,7 +60,6 @@ type Execution struct {
 	childIDs    []string               // IDs of child executions
 	metadata    map[string]string      // Additional metadata about the execution
 	logger      slogger.Logger         // Logger for the execution
-	wg          sync.WaitGroup         // WaitGroup for the execution
 }
 
 type ExecutionOptions struct {
@@ -122,9 +120,6 @@ func (e *Execution) Run(ctx context.Context) error {
 	if e.status != StatusPending {
 		return fmt.Errorf("unexpected execution status: %s", e.status)
 	}
-	e.wg.Add(1)
-	defer e.wg.Done()
-
 	e.status = StatusRunning
 	err := e.runWorkflow(ctx)
 	e.endTime = time.Now()
@@ -138,11 +133,6 @@ func (e *Execution) Run(ctx context.Context) error {
 	e.status = StatusCompleted
 	e.err = nil
 	return nil
-}
-
-func (e *Execution) Wait() error {
-	e.wg.Wait()
-	return e.err
 }
 
 func (e *Execution) runWorkflow(ctx context.Context) error {
@@ -168,10 +158,12 @@ func (e *Execution) runWorkflow(ctx context.Context) error {
 		}
 		activePaths[initialPath.id] = initialPath
 		go e.runPath(ctx, initialPath, updates)
+		e.logger.Info("started initial path", "path_id", initialPath.id)
 	}
 
 	// Main control loop
 	for len(activePaths) > 0 {
+		e.logger.Info("active paths", "active_paths", len(activePaths))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

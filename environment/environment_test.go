@@ -58,4 +58,6 @@ func TestNewEnvironment(t *testing.T) {
 
 	err = execution.Wait()
 	require.NoError(t, err)
+
+	require.True(t, false)
 }
