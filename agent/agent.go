@@ -250,23 +250,12 @@ func (a *Agent) Subordinates() []string {
 	return others
 }
 
-// func (a *Agent) Join(team Team) error {
-// 	a.mutex.Lock()
-// 	defer a.mutex.Unlock()
+func (a *Agent) SetEnvironment(env dive.Environment) {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
 
-// 	if a.running {
-// 		return fmt.Errorf("agent is already running")
-// 	}
-// 	if a.team != nil {
-// 		return fmt.Errorf("agent is already a member of a team")
-// 	}
-// 	a.team = team
-// 	return nil
-// }
-
-// func (a *Agent) Team() Team {
-// 	return a.team
-// }
+	a.environment = env
+}
 
 func (a *Agent) Start(ctx context.Context) error {
 	a.mutex.Lock()

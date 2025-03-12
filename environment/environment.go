@@ -40,6 +40,7 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("environment name is required")
 	}
+
 	agents := make(map[string]dive.Agent, len(opts.Agents))
 	for _, agent := range opts.Agents {
 		if _, exists := agents[agent.Name()]; exists {
@@ -47,6 +48,7 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		}
 		agents[agent.Name()] = agent
 	}
+
 	workflows := make(map[string]*workflow.Workflow, len(opts.Workflows))
 	for _, workflow := range opts.Workflows {
 		if _, exists := workflows[workflow.Name()]; exists {
@@ -54,11 +56,13 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		}
 		workflows[workflow.Name()] = workflow
 	}
+
 	executions := make(map[string]*Execution, len(opts.Executions))
 	for _, execution := range opts.Executions {
 		executions[execution.ID()] = execution
 	}
-	return &Environment{
+
+	env := &Environment{
 		id:          opts.ID,
 		name:        opts.Name,
 		description: opts.Description,
@@ -67,7 +71,11 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		triggers:    opts.Triggers,
 		executions:  executions,
 		logger:      opts.Logger,
-	}, nil
+	}
+	for _, agent := range env.Agents() {
+		agent.SetEnvironment(env)
+	}
+	return env, nil
 }
 
 func (e *Environment) Name() string {
@@ -93,7 +101,7 @@ func (e *Environment) GetAgent(name string) (dive.Agent, error) {
 	return nil, fmt.Errorf("agent not found: %s", name)
 }
 
-func (e *Environment) AddAgent(agent dive.Agent) error {
+func (e *Environment) RegisterAgent(agent dive.Agent) error {
 	if _, exists := e.agents[agent.Name()]; exists {
 		return fmt.Errorf("agent already present: %s", agent.Name())
 	}

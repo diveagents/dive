@@ -48,11 +48,8 @@ type Task interface {
 	// ExpectedOutput returns what output is expected from this task
 	ExpectedOutput() string
 
-	// Dependencies returns the names of tasks that must be completed before this one
-	Dependencies() []string
-
-	// AssignedAgent returns the agent assigned to this task, if any
-	AssignedAgent() Agent
+	// Agent returns the agent assigned to this task, if any
+	Agent() Agent
 
 	// Validate checks if the task is properly configured
 	Validate() error
@@ -104,6 +101,9 @@ type Agent interface {
 
 	// Work gives the agent a task to complete
 	Work(ctx context.Context, task Task) (events.Stream, error)
+
+	// SetEnvironment sets the environment for the agent
+	SetEnvironment(env Environment)
 }
 
 // RunnableAgent is an Agent that can be started and stopped
@@ -129,4 +129,11 @@ type EventHandlerAgent interface {
 
 	// HandleEvent passes an event to the event handler
 	HandleEvent(ctx context.Context, event *events.Event) error
+}
+
+type Environment interface {
+	Name() string
+	Agents() []Agent
+	RegisterAgent(agent Agent) error
+	GetAgent(name string) (Agent, error)
 }

@@ -139,18 +139,18 @@ func (e *Execution) runWorkflow(ctx context.Context, stream events.Stream) error
 	e.logger.Debug(
 		"workflow execution started",
 		"workflow_name", e.workflow.Name(),
-		"start_node", graph.StartNode().Name(),
+		"start_node", graph.Start().Name(),
 	)
 
-	node := graph.StartNode()
+	node := graph.Start()
 
 	for {
 		task := node.Task
 
 		// Determine which agent should take the task
 		var agent dive.Agent
-		if task.AssignedAgent() != nil {
-			agent = task.AssignedAgent()
+		if task.Agent() != nil {
+			agent = task.Agent()
 		} else {
 			// Default to first agent if none assigned
 			agent = e.environment.Agents()[0]

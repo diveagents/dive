@@ -34,40 +34,56 @@ func (n *Node) Name() string {
 }
 
 type Graph struct {
-	nodes         map[string]*Node
-	startNodeName string
+	nodes map[string]*Node
+	start *Node
 }
 
-func NewGraph(nodes map[string]*Node, start string) (*Graph, error) {
-	if len(nodes) == 0 {
+type GraphOptions struct {
+	Nodes map[string]*Node
+	Start string
+}
+
+// NewGraph creates a new graph containing given nodes
+func NewGraph(opts GraphOptions) (*Graph, error) {
+	if len(opts.Nodes) == 0 {
 		return nil, fmt.Errorf("graph must have at least one node")
 	}
-	if start == "" {
+	if len(opts.Nodes) == 1 && opts.Start == "" {
+		for name := range opts.Nodes {
+			opts.Start = name
+			break
+		}
+	}
+	if opts.Start == "" {
 		return nil, fmt.Errorf("graph must have a start node")
 	}
-	graphNodes := make(map[string]*Node, len(nodes))
-	for name, node := range nodes {
+	graphNodes := make(map[string]*Node, len(opts.Nodes))
+	for name, node := range opts.Nodes {
 		graphNodes[name] = node
 	}
-	if _, ok := graphNodes[start]; !ok {
-		return nil, fmt.Errorf("start node %q not found", start)
+	startNode, ok := graphNodes[opts.Start]
+	if !ok {
+		return nil, fmt.Errorf("start node %q not found", opts.Start)
 	}
 	return &Graph{
-		nodes:         graphNodes,
-		startNodeName: start,
+		nodes: graphNodes,
+		start: startNode,
 	}, nil
 }
 
-func (g *Graph) StartNode() *Node {
-	return g.nodes[g.startNodeName]
+// Start returns the start node of the graph
+func (g *Graph) Start() *Node {
+	return g.start
 }
 
-func (g *Graph) GetNode(name string) (*Node, bool) {
+// Get returns a node by name
+func (g *Graph) Get(name string) (*Node, bool) {
 	node, ok := g.nodes[name]
 	return node, ok
 }
 
-func (g *Graph) NodeNames() []string {
+// Names returns the names of all nodes in the graph
+func (g *Graph) Names() []string {
 	names := make([]string, 0, len(g.nodes))
 	for name := range g.nodes {
 		names = append(names, name)

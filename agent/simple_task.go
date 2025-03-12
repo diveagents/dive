@@ -29,7 +29,7 @@ func (t *SimpleTask) ExpectedOutput() string {
 	return t.expectedOutput
 }
 
-func (t *SimpleTask) AssignedAgent() dive.Agent {
+func (t *SimpleTask) Agent() dive.Agent {
 	return t.assignedAgent
 }
 

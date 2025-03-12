@@ -8,8 +8,9 @@ import (
 
 	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/getstingrai/dive"
-	"github.com/getstingrai/dive/graph"
 )
+
+var _ dive.Task = &Task{}
 
 // TaskOptions are used to create a Task
 type TaskOptions struct {
@@ -150,17 +151,4 @@ func isSimpleFilename(filename string) bool {
 
 func formatBlock(heading, blockType, content string) string {
 	return fmt.Sprintf("%s\n\n```%s\n%s\n```", heading, blockType, content)
-}
-
-// OrderTasks sorts tasks into execution order using their dependencies.
-func OrderTasks(tasks []dive.Task) ([]string, error) {
-	nodes := make([]graph.Node, len(tasks))
-	for i, task := range tasks {
-		nodes[i] = task
-	}
-	order, err := graph.New(nodes).TopologicalSort()
-	if err != nil {
-		return nil, fmt.Errorf("invalid task dependencies: %w", err)
-	}
-	return order, nil
 }
