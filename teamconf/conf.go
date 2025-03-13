@@ -14,7 +14,7 @@ import (
 	"github.com/getstingrai/dive/environment"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
-	"github.com/hashicorp/hcl/v2"
+	"github.com/zclconf/go-cty/cty"
 	"gopkg.in/yaml.v3"
 )
 
@@ -106,27 +106,36 @@ type Schedule struct {
 	// Payload map[string]interface{} `yaml:"payload,omitempty" json:"payload,omitempty" hcl:"payload,optional"`
 }
 
-// WorkflowStep represents a step in a workflow graph
-type WorkflowTask struct {
-	Task string `yaml:"task,omitempty" json:"task,omitempty" hcl:"task"`
-	// Inputs   map[string]string      `yaml:"inputs,omitempty" json:"inputs,omitempty" hcl:"inputs,optional"`
-	// Next     interface{}            `yaml:"next,omitempty" json:"next,omitempty" hcl:"next,optional"`
-	// When     string                 `yaml:"when,omitempty" json:"when,omitempty" hcl:"when,optional"`
-	// Default  bool                   `yaml:"default,omitempty" json:"default,omitempty" hcl:"default,optional"`
-	// Metadata map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty" hcl:"metadata,optional"`
-}
+// type NextNode struct {
+// 	Node string
+// 	When string
+// }
 
-// WorkflowGraph represents the execution graph of a workflow
-type WorkflowGraph struct {
-	Tasks hcl.Body `yaml:"tasks,omitempty" json:"tasks,omitempty" hcl:",remain"`
+// // Node represents a step in a workflow graph
+// type Node struct {
+// 	Task   string
+// 	Inputs map[string]string
+// 	Values map[string]interface{}
+// 	Next   []NextNode
+// 	When   string
+// }
+
+// Node represents a single node in the workflow
+type Node struct {
+	Name    string    `hcl:"name,label"`
+	Task    string    `hcl:"task"`
+	Inputs  cty.Value `hcl:"inputs,optional"`
+	Next    []string  `hcl:"next,optional"`
+	When    string    `hcl:"when,optional"`
+	IsStart bool      `hcl:"is_start,optional"`
 }
 
 // Workflow represents a workflow definition
 type Workflow struct {
-	Name        string        `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
-	Description string        `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
-	Triggers    []string      `yaml:"triggers,omitempty" json:"triggers,omitempty" hcl:"triggers,optional"`
-	Graph       WorkflowGraph `yaml:"graph,omitempty" json:"graph,omitempty" hcl:"graph,block"`
+	Name        string   `hcl:"name,label"`
+	Description string   `hcl:"description,optional"`
+	Triggers    []string `hcl:"triggers,optional"`
+	Nodes       []*Node  `hcl:"node,block"`
 }
 
 // ToolDefinition used for serializing tool configurations
@@ -202,6 +211,14 @@ func LoadHCL(data []byte) (*TeamDefinition, error) {
 		return nil, err
 	}
 
+	var tools []ToolConfig
+	for _, tool := range hclTeam.Tools {
+		tools = append(tools, ToolConfig{
+			"name":    tool.Name,
+			"enabled": tool.Enabled,
+		})
+	}
+
 	// Convert HCLTeam to TeamDefinition
 	return &TeamDefinition{
 		Name:        hclTeam.Name,
@@ -211,7 +228,8 @@ func LoadHCL(data []byte) (*TeamDefinition, error) {
 		Documents:   hclTeam.Documents,
 		Config:      map[string]any{}, // Initialize empty map
 		Variables:   map[string]any{}, // Initialize empty map
-		Tools:       make([]ToolConfig, len(hclTeam.Tools)),
+		Tools:       tools,
+		Workflows:   hclTeam.Workflows,
 	}, nil
 }
 
@@ -257,7 +275,8 @@ func LoadDirectory(dirPath string) (*environment.Environment, error) {
 
 	// Build environment from combined definition
 	buildOpts := BuildOptions{
-		Logger: slogger.New(slogger.LevelFromString("debug")), // combinedDef.Config["log_level"].(string))),
+		Logger:     slogger.New(slogger.LevelFromString("debug")), // combinedDef.Config["log_level"].(string))),
+		Repository: document.NewMemoryRepository(),
 	}
 
 	return combinedDef.BuildEnvironment(buildOpts)
@@ -299,6 +318,19 @@ func mergeDefs(base, override TeamDefinition) TeamDefinition {
 	result.Tasks = make([]Task, 0, len(taskMap))
 	for _, task := range taskMap {
 		result.Tasks = append(result.Tasks, task)
+	}
+
+	// Merge workflows (by name)
+	workflowMap := make(map[string]Workflow)
+	for _, workflow := range result.Workflows {
+		workflowMap[workflow.Name] = workflow
+	}
+	for _, workflow := range override.Workflows {
+		workflowMap[workflow.Name] = workflow
+	}
+	result.Workflows = make([]Workflow, 0, len(workflowMap))
+	for _, workflow := range workflowMap {
+		result.Workflows = append(result.Workflows, workflow)
 	}
 
 	// Merge documents (by ID)
@@ -411,9 +443,8 @@ func (def *TeamDefinition) BuildEnvironment(buildOpts BuildOptions) (*environmen
 	var toolConfigs map[string]map[string]interface{}
 	if def.Tools != nil {
 		toolConfigs = make(map[string]map[string]interface{}, len(def.Tools))
-		for name, toolDef := range def.Tools {
-			// toolConfigs[name] = toolDef
-			fmt.Println("TOOL", name, toolDef)
+		for _, toolDef := range def.Tools {
+			toolConfigs[toolDef["name"].(string)] = toolDef
 		}
 	}
 
@@ -448,29 +479,23 @@ func (def *TeamDefinition) BuildEnvironment(buildOpts BuildOptions) (*environmen
 	}
 
 	// Create workflows from tasks
-	workflows := make([]*workflow.Workflow, 0, len(def.Tasks))
+	// workflows := make([]*workflow.Workflow, 0, len(def.Tasks))
+	var tasks []*workflow.Task
 	for _, taskDef := range def.Tasks {
 		task, err := buildTask(taskDef, agents, buildOpts.Variables)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build task %s: %w", taskDef.Name, err)
 		}
+		tasks = append(tasks, task)
+	}
 
-		// Create a simple workflow for each task
-		w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
-			Name: taskDef.Name,
-			Graph: workflow.NewGraph(workflow.GraphOptions{
-				Nodes: map[string]*workflow.Node{
-					taskDef.Name: workflow.NewNode(workflow.NodeOptions{
-						IsStart: true,
-						Task:    task,
-					}),
-				},
-			}),
-		})
+	var workflows []*workflow.Workflow
+	for _, workflowDef := range def.Workflows {
+		workflow, err := buildWorkflow(workflowDef, tasks)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create workflow for task %s: %w", taskDef.Name, err)
+			return nil, fmt.Errorf("failed to build workflow %s: %w", workflowDef.Name, err)
 		}
-		workflows = append(workflows, w)
+		workflows = append(workflows, workflow)
 	}
 
 	// Handle documents if repository is provided

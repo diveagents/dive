@@ -9,6 +9,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/getstingrai/dive/teamconf"
+	"github.com/getstingrai/dive/workflow"
 )
 
 var (
@@ -27,10 +28,11 @@ func fatal(msg string, args ...interface{}) {
 }
 
 func main() {
-	var logLevel, varsFlag, outDir string
+	var logLevel, varsFlag, outDir, workflowName string
 	flag.StringVar(&logLevel, "log-level", "debug", "Log level (debug, info, warn, error)")
 	flag.StringVar(&varsFlag, "vars", "", "Comma-separated list of variables in format key=value")
 	flag.StringVar(&outDir, "output", "", "Output directory for task results")
+	flag.StringVar(&workflowName, "workflow", "", "Workflow name")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -60,9 +62,21 @@ func main() {
 		fatal(err.Error())
 	}
 
-	workflow, err := env.GetWorkflow("workflow")
-	if err != nil {
-		fatal(err.Error())
+	var workflow *workflow.Workflow
+	if workflowName != "" {
+		workflow, err = env.GetWorkflow(workflowName)
+		if err != nil {
+			fatal(err.Error())
+		}
+	} else {
+		workflows := env.Workflows()
+		for _, w := range workflows {
+			fmt.Println("WORKFLOW", w.Name())
+		}
+		if len(workflows) != 1 {
+			fatal("You must specify a workflow name")
+		}
+		workflow = workflows[0]
 	}
 
 	execution, err := env.StartWorkflow(ctx, workflow, vars)

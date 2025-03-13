@@ -175,10 +175,10 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	}
 
 	// Add references to evaluation context
-	evalCtx.Variables["tasks"] = cty.ObjectVal(taskRefs)
-	evalCtx.Variables["agents"] = cty.ObjectVal(agentRefs)
-	evalCtx.Variables["tools"] = cty.ObjectVal(toolRefs)
-	evalCtx.Variables["documents"] = cty.ObjectVal(docRefs)
+	evalCtx.Variables["task"] = cty.ObjectVal(taskRefs)
+	evalCtx.Variables["agent"] = cty.ObjectVal(agentRefs)
+	evalCtx.Variables["tool"] = cty.ObjectVal(toolRefs)
+	evalCtx.Variables["document"] = cty.ObjectVal(docRefs)
 
 	// Use a custom schema to handle blocks with variables
 	fullContent, diags := file.Body.Content(&hcl.BodySchema{
@@ -392,7 +392,6 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 							return nil, fmt.Errorf("tool must be a string")
 						}
 						agent.Tools = append(agent.Tools, v.AsString())
-						fmt.Println("TOOL!", v.AsString())
 					}
 				case "cache_control":
 					if val.Type() == cty.String {
@@ -544,7 +543,6 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 				tool.Enabled = true
 			}
 			def.Tools = append(def.Tools, tool)
-			fmt.Println("ADDED TOOL", tool.Name, tool)
 
 		case "trigger":
 			var trigger Trigger
@@ -568,6 +566,12 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			if diags := gohcl.DecodeBody(block.Body, evalCtx, &workflow); diags.HasErrors() {
 				return nil, fmt.Errorf("failed to decode workflow block: %s", diags.Error())
 			}
+			def.Workflows = append(def.Workflows, workflow)
+			node := workflow.Nodes[0] // "normalize_market_data"]
+			fmt.Printf("WORKFLOW NODE: %+v\n", node)
+
+			workflow.Triggers = []string{}
+
 			def.Workflows = append(def.Workflows, workflow)
 		}
 	}

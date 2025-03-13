@@ -24,8 +24,8 @@ type Edge struct {
 type Node struct {
 	name    string
 	task    dive.Task
-	inputs  map[string]Variable
-	outputs map[string]Variable
+	inputs  map[string]interface{}
+	outputs map[string]interface{}
 	next    []*Edge
 	isStart bool
 }
@@ -33,8 +33,8 @@ type Node struct {
 type NodeOptions struct {
 	Name    string
 	Task    dive.Task
-	Inputs  map[string]Variable
-	Outputs map[string]Variable
+	Inputs  map[string]interface{}
+	Outputs map[string]interface{}
 	Next    []*Edge
 	IsStart bool
 }
@@ -66,11 +66,11 @@ func (n *Node) TaskName() string {
 	return n.task.Name()
 }
 
-func (n *Node) Inputs() map[string]Variable {
+func (n *Node) Inputs() map[string]interface{} {
 	return n.inputs
 }
 
-func (n *Node) Outputs() map[string]Variable {
+func (n *Node) Outputs() map[string]interface{} {
 	return n.outputs
 }
 
@@ -105,7 +105,6 @@ func NewGraph(opts GraphOptions) *Graph {
 			startNodes = append(startNodes, node)
 		}
 		graphNodes[name] = node
-		fmt.Println("node", name, node.name)
 	}
 	return &Graph{
 		nodes: graphNodes,
