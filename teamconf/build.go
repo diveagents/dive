@@ -191,12 +191,10 @@ func buildTask(taskDef Task, agents []dive.Agent, variables map[string]interface
 }
 
 func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Workflow, error) {
-
 	tasksByName := make(map[string]*workflow.Task)
 	for _, task := range tasks {
 		tasksByName[task.Name()] = task
 	}
-
 	nodes := map[string]*workflow.Node{}
 	for _, node := range workflowDef.Nodes {
 		task, ok := tasksByName[node.Task]
@@ -204,34 +202,32 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			return nil, fmt.Errorf("task %q not found", node.Task)
 		}
 		var edges []*workflow.Edge
-		for _, next := range node.Next {
+		for _, edge := range node.Edges {
+			var condition workflow.Condition
+			if edge.Condition != "" {
+				var err error
+				condition, err = workflow.NewEvalCondition(edge.Condition, map[string]any{
+					"node": nil,
+					"task": nil,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("failed to create condition: %w", err)
+				}
+			}
 			edges = append(edges, &workflow.Edge{
-				To:        next,
-				Condition: nil,
+				To:        edge.Node,
+				Condition: condition,
 			})
 		}
 		inputs := map[string]any{}
-		// for k, v := range node.Inputs {
-		// 	inputs[k] = v
-		// }
-
 		inputsMap := node.Inputs.AsValueMap()
 		for k, v := range inputsMap {
-			// inputs[k] = v.AsString()
-			fmt.Println("INPUT:", k, v)
 			converted, err := convertCtyValue(v)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert input %q: %w", k, err)
 			}
 			inputs[k] = converted
 		}
-
-		// if err := gocty.FromCtyValue(node.Inputs, &inputs); err != nil {
-		// 	return nil, fmt.Errorf("failed to convert inputs: %w", err)
-		// }
-
-		fmt.Println("INPUTS:", node.Name, inputs)
-
 		nodes[node.Name] = workflow.NewNode(workflow.NodeOptions{
 			Name:    node.Name,
 			Task:    task,
@@ -240,45 +236,13 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			Inputs:  inputs,
 		})
 	}
-
 	graph := workflow.NewGraph(workflow.GraphOptions{
 		Nodes: nodes,
 	})
-
-	// fmt.Println("GRAPH:", workflowDef.Graph.Body)
-
-	// attrs, diags := workflowDef.Graph.Body.JustAttributes()
-	// if diags.HasErrors() {
-	// 	return nil, fmt.Errorf("failed to decode task block: %s", diags.Error())
-	// }
-
-	// for k, v := range attrs {
-	// 	var n Node
-	// 	diags := gohcl.DecodeExpression(v.Expr, nil, &n)
-	// 	if diags.HasErrors() {
-	// 		return nil, fmt.Errorf("failed to decode task block: %s", diags.Error())
-	// 	}
-	// 	fmt.Println("ATTR:", k, "NODE:", n.Inputs)
-	// }
-
-	// // Get the full content first
-	// content, diags := workflowDef.Graph.Body.Content(&hcl.BodySchema{
-	// 	Attributes: []hcl.AttributeSchema{},
-	// 	Blocks:     []hcl.BlockHeaderSchema{},
-	// })
-	// if diags.HasErrors() {
-	// 	return nil, fmt.Errorf("failed to decode task block: %s", diags.Error())
-	// }
-	// fmt.Println("CONTENT:", content)
-
-	// node := workflowDef.Graph.Tasks["normalize_market_data"]
-
-	// fmt.Println("NODE:", node)
-	// fmt.Println("NODE:", node.Task, node.Inputs)
-
 	return workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name:        workflowDef.Name,
 		Description: workflowDef.Description,
+		// Inputs:      workflowDef.Inputs,
 		// Triggers:    workflowDef.Triggers,
 		Graph: graph,
 	})
@@ -312,6 +276,29 @@ func convertCtyValue(v cty.Value) (interface{}, error) {
 					return nil, fmt.Errorf("error converting list element %d: %w", i, err)
 				}
 				result[i] = converted
+			}
+			return result, nil
+		} else if v.Type().IsTupleType() {
+			length := v.LengthInt()
+			result := make([]interface{}, length)
+			for i := 0; i < length; i++ {
+				element := v.Index(cty.NumberIntVal(int64(i)))
+				converted, err := convertCtyValue(element)
+				if err != nil {
+					return nil, fmt.Errorf("error converting tuple element %d: %w", i, err)
+				}
+				result[i] = converted
+			}
+			return result, nil
+		} else if v.Type().IsObjectType() {
+			// TODO: good error for non-string keys?
+			result := make(map[string]interface{})
+			for k, v := range v.AsValueMap() {
+				converted, err := convertCtyValue(v)
+				if err != nil {
+					return nil, fmt.Errorf("error converting object field %q: %w", k, err)
+				}
+				result[k] = converted
 			}
 			return result, nil
 		}

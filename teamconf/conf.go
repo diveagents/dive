@@ -120,14 +120,21 @@ type Schedule struct {
 // 	When   string
 // }
 
+type NodeEdge struct {
+	Node      string `hcl:"node"`
+	Condition string `hcl:"condition,optional"`
+}
+
 // Node represents a single node in the workflow
 type Node struct {
-	Name    string    `hcl:"name,label"`
-	Task    string    `hcl:"task"`
-	Inputs  cty.Value `hcl:"inputs,optional"`
-	Next    []string  `hcl:"next,optional"`
-	When    string    `hcl:"when,optional"`
-	IsStart bool      `hcl:"is_start,optional"`
+	Name    string      `hcl:"name,label"`
+	Task    string      `hcl:"task,optional"`
+	Inputs  cty.Value   `hcl:"inputs,optional"`
+	Next    cty.Value   `hcl:"next,optional"`
+	When    string      `hcl:"when,optional"`
+	IsStart bool        `hcl:"is_start,optional"`
+	Edges   []*NodeEdge `hcl:"edge,block"`
+	// Edges   []*NodeEdge // filled in manually
 }
 
 // Workflow represents a workflow definition

@@ -155,8 +155,10 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	agentRefs := make(map[string]cty.Value)
 	toolRefs := make(map[string]cty.Value)
 	docRefs := make(map[string]cty.Value)
+	triggerRefs := make(map[string]cty.Value)
+	scheduleRefs := make(map[string]cty.Value)
 
-	// First pass through blocks to collect task, agent, and tool names for references
+	// First pass through blocks to collect names that will be available for references
 	for _, block := range content.Blocks {
 		switch block.Type {
 		case "task":
@@ -171,6 +173,12 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 		case "document":
 			docName := block.Labels[0]
 			docRefs[docName] = cty.StringVal(docName)
+		case "trigger":
+			triggerName := block.Labels[0]
+			triggerRefs[triggerName] = cty.StringVal(triggerName)
+		case "schedule":
+			scheduleName := block.Labels[0]
+			scheduleRefs[scheduleName] = cty.StringVal(scheduleName)
 		}
 	}
 
@@ -179,6 +187,8 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 	evalCtx.Variables["agent"] = cty.ObjectVal(agentRefs)
 	evalCtx.Variables["tool"] = cty.ObjectVal(toolRefs)
 	evalCtx.Variables["document"] = cty.ObjectVal(docRefs)
+	evalCtx.Variables["trigger"] = cty.ObjectVal(triggerRefs)
+	evalCtx.Variables["schedule"] = cty.ObjectVal(scheduleRefs)
 
 	// Use a custom schema to handle blocks with variables
 	fullContent, diags := file.Body.Content(&hcl.BodySchema{
@@ -561,19 +571,125 @@ func LoadHCLDefinition(conf []byte, filename string, vars map[string]interface{}
 			def.Schedules = append(def.Schedules, schedule)
 
 		case "workflow":
+			// First pass: extract node names for references to work
+			namesMap, err := getNameMap(block, "node")
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract node blocks: %s", err)
+			}
+			childCtx := evalCtx.NewChild()
+			childCtx.Variables = namesMap
+
 			var workflow Workflow
 			workflow.Name = block.Labels[0]
-			if diags := gohcl.DecodeBody(block.Body, evalCtx, &workflow); diags.HasErrors() {
+			if diags := gohcl.DecodeBody(block.Body, childCtx, &workflow); diags.HasErrors() {
 				return nil, fmt.Errorf("failed to decode workflow block: %s", diags.Error())
 			}
-			def.Workflows = append(def.Workflows, workflow)
-			node := workflow.Nodes[0] // "normalize_market_data"]
-			fmt.Printf("WORKFLOW NODE: %+v\n", node)
 
-			workflow.Triggers = []string{}
+			// Resolve edges
+			for _, node := range workflow.Nodes {
+				if node.Task == "" {
+					node.Task = node.Name
+					fmt.Println("DEFAULTED TASK:", node.Name)
+				}
+				if !node.Next.IsNull() {
+					if len(node.Edges) > 0 {
+						return nil, fmt.Errorf("node %q has both next and edges defined", node.Name)
+					}
+					edges, err := getNodeEdges(node.Next)
+					if err != nil {
+						return nil, fmt.Errorf("failed to get node edges: %s", err)
+					}
+					node.Edges = edges
+				}
+			}
 
 			def.Workflows = append(def.Workflows, workflow)
 		}
 	}
 	return &def, nil
+}
+
+func getBlockNames(block *hcl.Block, blockType string) ([]string, error) {
+	content, _, diags := block.Body.PartialContent(&hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: blockType, LabelNames: []string{"name"}},
+		},
+	})
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("failed to extract %s blocks: %s", blockType, diags.Error())
+	}
+	var names []string
+	for _, block := range content.Blocks {
+		if block.Type != blockType {
+			continue
+		}
+		names = append(names, block.Labels[0])
+	}
+	return names, nil
+}
+
+func getNameMap(block *hcl.Block, blockType string) (map[string]cty.Value, error) {
+	names, err := getBlockNames(block, blockType)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]cty.Value)
+	for _, name := range names {
+		m[name] = cty.StringVal(name)
+	}
+	result := map[string]cty.Value{
+		"node": cty.ObjectVal(m),
+	}
+	return result, nil
+}
+
+func getNodeEdges(value cty.Value) ([]*NodeEdge, error) {
+	switch value.Type() {
+	case cty.String:
+		return []*NodeEdge{{Node: value.AsString()}}, nil
+	default:
+		var edges []*NodeEdge
+		if value.Type().IsListType() {
+			length := value.LengthInt()
+			for i := 0; i < length; i++ {
+				element := value.Index(cty.NumberIntVal(int64(i)))
+				edge, err := getNodeEdges(element)
+				if err != nil {
+					return nil, err
+				}
+				edges = append(edges, edge...)
+			}
+		} else if value.Type().IsTupleType() {
+			length := value.LengthInt()
+			for i := 0; i < length; i++ {
+				element := value.Index(cty.NumberIntVal(int64(i)))
+				edge, err := getNodeEdges(element)
+				if err != nil {
+					return nil, err
+				}
+				edges = append(edges, edge...)
+			}
+		} else if value.Type().IsObjectType() {
+			valueMap := value.AsValueMap()
+			nodeName, ok := valueMap["node"]
+			if !ok {
+				return nil, fmt.Errorf("missing node in edge")
+			}
+			if nodeName.Type() != cty.String {
+				return nil, fmt.Errorf("node must be a string")
+			}
+			var condition string
+			if conditionVal, ok := valueMap["condition"]; ok {
+				if conditionVal.Type() == cty.String {
+					condition = conditionVal.AsString()
+				} else {
+					return nil, fmt.Errorf("condition must be a string")
+				}
+			}
+			edges = append(edges, &NodeEdge{Node: nodeName.AsString(), Condition: condition})
+		} else {
+			return nil, fmt.Errorf("invalid type for node edge: %s", value.Type())
+		}
+		return edges, nil
+	}
 }
