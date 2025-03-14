@@ -130,12 +130,19 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 
 	// Capture this request as a new task
 	task := &SimpleTask{
-		name:           params.Name,
-		description:    params.Description,
-		expectedOutput: params.ExpectedOutput,
-		assignedAgent:  agent,
-		dependencies:   []string{},
-		prompt:         "", // TODO
+		name:          params.Name,
+		description:   params.Description,
+		assignedAgent: agent,
+		inputs:        map[string]dive.Input{},
+		outputs: map[string]dive.Output{
+			"output": {
+				Name:        "output",
+				Type:        "string",
+				Description: params.ExpectedOutput,
+				Format:      string(outputFormat),
+			},
+		},
+		prompt: "", // TODO
 	}
 
 	// Tell the agent to work on the task

@@ -14,163 +14,168 @@ import (
 	"github.com/getstingrai/dive/environment"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
-	"github.com/zclconf/go-cty/cty"
 	"gopkg.in/yaml.v3"
 )
 
-type ToolConfig map[string]interface{}
-
 // TeamDefinition is a serializable representation of a dive.Team
 type TeamDefinition struct {
-	Name        string         `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,optional"`
-	Description string         `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
-	Agents      []AgentConfig  `yaml:"agents,omitempty" json:"agents,omitempty" hcl:"agent,block"`
-	Tasks       []Task         `yaml:"tasks,omitempty" json:"tasks,omitempty" hcl:"task,block"`
-	Documents   []Document     `yaml:"documents,omitempty" json:"documents,omitempty" hcl:"document,block"`
-	Variables   map[string]any `yaml:"variables,omitempty" json:"variables,omitempty" hcl:"variable,block"`
-	Config      map[string]any `yaml:"config,omitempty" json:"config,omitempty" hcl:"config,block"`
-	Tools       []ToolConfig   `yaml:"tools,omitempty" json:"tools,omitempty" hcl:"tool,block"`
-	Triggers    []Trigger      `yaml:"triggers,omitempty" json:"triggers,omitempty" hcl:"trigger,block"`
-	Schedules   []Schedule     `yaml:"schedules,omitempty" json:"schedules,omitempty" hcl:"schedule,block"`
-	Workflows   []Workflow     `yaml:"workflows,omitempty" json:"workflows,omitempty" hcl:"workflow,block"`
+	Name        string        `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string        `yaml:"description,omitempty" json:"description,omitempty"`
+	Config      Config        `yaml:"config,omitempty" json:"config,omitempty"`
+	Variables   []Variable    `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Tools       []Tool        `yaml:"tools,omitempty" json:"tools,omitempty"`
+	Documents   []Document    `yaml:"documents,omitempty" json:"documents,omitempty"`
+	Agents      []AgentConfig `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Tasks       []Task        `yaml:"tasks,omitempty" json:"tasks,omitempty"`
+	Workflows   []Workflow    `yaml:"workflows,omitempty" json:"workflows,omitempty"`
+	Triggers    []Trigger     `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	Schedules   []Schedule    `yaml:"schedules,omitempty" json:"schedules,omitempty"`
+}
+
+// Config represents global configuration settings
+type Config struct {
+	Logging struct {
+		Level string `yaml:"level,omitempty" json:"level,omitempty"`
+	} `yaml:"logging,omitempty" json:"logging,omitempty"`
+	Providers struct {
+		Default string `yaml:"default,omitempty" json:"default,omitempty"`
+	} `yaml:"providers,omitempty" json:"providers,omitempty"`
+	Model           string `yaml:"model,omitempty" json:"model,omitempty"`
+	CacheControl    string `yaml:"cache_control,omitempty" json:"cache_control,omitempty"`
+	DefaultProvider string `yaml:"default_provider,omitempty" json:"default_provider,omitempty"`
+	DefaultModel    string `yaml:"default_model,omitempty" json:"default_model,omitempty"`
+	LogLevel        string `yaml:"log_level,omitempty" json:"log_level,omitempty"`
+}
+
+// Variable represents a workflow-level input parameter
+type Variable struct {
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
+	Type        string `yaml:"type,omitempty" json:"type,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	Default     string `yaml:"default,omitempty" json:"default,omitempty"`
+}
+
+// Tool represents an external capability that can be used by agents
+type Tool struct {
+	Name    string `yaml:"name,omitempty" json:"name,omitempty"`
+	Enabled bool   `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 }
 
 // AgentMemory represents memory configuration for an agent
 type AgentMemory struct {
-	Type          string `yaml:"type,omitempty" json:"type,omitempty" hcl:"type"`
-	Collection    string `yaml:"collection,omitempty" json:"collection,omitempty" hcl:"collection,optional"`
-	RetentionDays int    `yaml:"retention_days,omitempty" json:"retention_days,omitempty" hcl:"retention_days,optional"`
+	Type          string `yaml:"type,omitempty" json:"type,omitempty"`
+	Collection    string `yaml:"collection,omitempty" json:"collection,omitempty"`
+	RetentionDays int    `yaml:"retention_days,omitempty" json:"retention_days,omitempty"`
 }
 
 // AgentConfig is a serializable representation of a dive.Agent
 type AgentConfig struct {
-	Name               string         `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
-	Description        string         `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
-	Provider           string         `yaml:"provider,omitempty" json:"provider,omitempty" hcl:"provider,optional"`
-	Model              string         `yaml:"model,omitempty" json:"model,omitempty" hcl:"model,optional"`
-	AcceptedEvents     []string       `yaml:"accepted_events,omitempty" json:"accepted_events,omitempty" hcl:"accepted_events,optional"`
-	CacheControl       string         `yaml:"cache_control,omitempty" json:"cache_control,omitempty" hcl:"cache_control,optional"`
-	Instructions       string         `yaml:"instructions,omitempty" json:"instructions,omitempty" hcl:"instructions,optional"`
-	Tools              []string       `yaml:"tools,omitempty" json:"tools,omitempty" hcl:"tools,optional"`
-	IsSupervisor       bool           `yaml:"is_supervisor,omitempty" json:"is_supervisor,omitempty" hcl:"is_supervisor,optional"`
-	Subordinates       []string       `yaml:"subordinates,omitempty" json:"subordinates,omitempty" hcl:"subordinates,optional"`
-	TaskTimeout        string         `yaml:"task_timeout,omitempty" json:"task_timeout,omitempty" hcl:"task_timeout,optional"`
-	ChatTimeout        string         `yaml:"chat_timeout,omitempty" json:"chat_timeout,omitempty" hcl:"chat_timeout,optional"`
-	LogLevel           string         `yaml:"log_level,omitempty" json:"log_level,omitempty" hcl:"log_level,optional"`
-	ToolConfig         map[string]any `yaml:"tool_config,omitempty" json:"tool_config,omitempty" hcl:"tool_config,block"`
-	ToolIterationLimit int            `yaml:"tool_iteration_limit,omitempty" json:"tool_iteration_limit,omitempty" hcl:"tool_iteration_limit,optional"`
-	Memory             AgentMemory    `yaml:"memory,omitempty" json:"memory,omitempty" hcl:"memory,block"`
+	Name               string         `yaml:"name,omitempty" json:"name,omitempty"`
+	Description        string         `yaml:"description,omitempty" json:"description,omitempty"`
+	Provider           string         `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Model              string         `yaml:"model,omitempty" json:"model,omitempty"`
+	AcceptedEvents     []string       `yaml:"accepted_events,omitempty" json:"accepted_events,omitempty"`
+	CacheControl       string         `yaml:"cache_control,omitempty" json:"cache_control,omitempty"`
+	Instructions       string         `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	Tools              []string       `yaml:"tools,omitempty" json:"tools,omitempty"`
+	IsSupervisor       bool           `yaml:"is_supervisor,omitempty" json:"is_supervisor,omitempty"`
+	Subordinates       []string       `yaml:"subordinates,omitempty" json:"subordinates,omitempty"`
+	TaskTimeout        string         `yaml:"task_timeout,omitempty" json:"task_timeout,omitempty"`
+	ChatTimeout        string         `yaml:"chat_timeout,omitempty" json:"chat_timeout,omitempty"`
+	LogLevel           string         `yaml:"log_level,omitempty" json:"log_level,omitempty"`
+	ToolConfig         map[string]any `yaml:"tool_config,omitempty" json:"tool_config,omitempty"`
+	ToolIterationLimit int            `yaml:"tool_iteration_limit,omitempty" json:"tool_iteration_limit,omitempty"`
+	Memory             AgentMemory    `yaml:"memory,omitempty" json:"memory,omitempty"`
 }
 
 // TaskInput represents an input parameter for a task
 type TaskInput struct {
-	Type        string `yaml:"type,omitempty" json:"type,omitempty" hcl:"type"`
-	Description string `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
-	Required    bool   `yaml:"required,omitempty" json:"required,omitempty" hcl:"required,optional"`
+	Type        string `yaml:"type,omitempty" json:"type,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	Required    bool   `yaml:"required,omitempty" json:"required,omitempty"`
+	Default     any    `yaml:"default,omitempty" json:"default,omitempty"`
 }
 
 // TaskOutput represents an output parameter for a task
 type TaskOutput struct {
-	Type        string `yaml:"type,omitempty" json:"type,omitempty" hcl:"type"`
-	Description string `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
+	Type        string `yaml:"type,omitempty" json:"type,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	Format      string `yaml:"format,omitempty" json:"format,omitempty"`
+	Default     any    `yaml:"default,omitempty" json:"default,omitempty"`
 }
 
 // Task is a serializable representation of a dive.Task
 type Task struct {
-	Name           string                `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
-	Description    string                `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
-	Kind           string                `yaml:"kind,omitempty" json:"kind,omitempty" hcl:"kind,optional"`
-	Type           string                `yaml:"type,omitempty" json:"type,omitempty" hcl:"type,optional"`
-	Operation      string                `yaml:"operation,omitempty" json:"operation,omitempty" hcl:"operation,optional"`
-	ExpectedOutput string                `yaml:"expected_output,omitempty" json:"expected_output,omitempty" hcl:"expected_output,optional"`
-	OutputFormat   string                `yaml:"output_format,omitempty" json:"output_format,omitempty" hcl:"output_format,optional"`
-	Agent          string                `yaml:"agent,omitempty" json:"agent,omitempty" hcl:"agent,optional"`
-	OutputFile     string                `yaml:"output_file,omitempty" json:"output_file,omitempty" hcl:"output_file,optional"`
-	Timeout        string                `yaml:"timeout,omitempty" json:"timeout,omitempty" hcl:"timeout,optional"`
-	Inputs         map[string]TaskInput  `yaml:"inputs,omitempty" json:"inputs,omitempty" hcl:"input,block"`
-	Outputs        map[string]TaskOutput `yaml:"outputs,omitempty" json:"outputs,omitempty" hcl:"output,block"`
+	Name        string                `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string                `yaml:"description,omitempty" json:"description,omitempty"`
+	Kind        string                `yaml:"kind,omitempty" json:"kind,omitempty"`
+	Agent       string                `yaml:"agent,omitempty" json:"agent,omitempty"`
+	OutputFile  string                `yaml:"output_file,omitempty" json:"output_file,omitempty"`
+	Timeout     string                `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Inputs      map[string]TaskInput  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Outputs     map[string]TaskOutput `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 }
 
-// Trigger represents a trigger definition
-type Trigger struct {
-	Name string `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
-	Type string `yaml:"type,omitempty" json:"type,omitempty" hcl:"type"`
-	Path string `yaml:"path,omitempty" json:"path,omitempty" hcl:"path,optional"`
-	// PayloadSchema map[string]interface{} `yaml:"payload_schema,omitempty" json:"payload_schema,omitempty" hcl:"payload_schema,optional"`
+// Step represents a single step in a workflow
+type Step struct {
+	Name   string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Task   string            `yaml:"task,omitempty" json:"task,omitempty"`
+	Inputs map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Each   *EachBlock        `yaml:"each,omitempty" json:"each,omitempty"`
+	Next   []NextStep        `yaml:"next,omitempty" json:"next,omitempty"`
 }
 
-// Schedule represents a schedule definition
-type Schedule struct {
-	Name string `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
-	Cron string `yaml:"cron,omitempty" json:"cron,omitempty" hcl:"cron"`
-	// Payload map[string]interface{} `yaml:"payload,omitempty" json:"payload,omitempty" hcl:"payload,optional"`
+// EachBlock represents iteration configuration for a step
+type EachBlock struct {
+	Array         string `yaml:"array,omitempty" json:"array,omitempty"`
+	As            string `yaml:"as,omitempty" json:"as,omitempty"`
+	Parallel      bool   `yaml:"parallel,omitempty" json:"parallel,omitempty"`
+	MaxConcurrent int    `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
 }
 
-// type NextNode struct {
-// 	Node string
-// 	When string
-// }
-
-// // Node represents a step in a workflow graph
-// type Node struct {
-// 	Task   string
-// 	Inputs map[string]string
-// 	Values map[string]interface{}
-// 	Next   []NextNode
-// 	When   string
-// }
-
-type NodeEdge struct {
-	Node      string `hcl:"node"`
-	Condition string `hcl:"condition,optional"`
-}
-
-// Node represents a single node in the workflow
-type Node struct {
-	Name    string      `hcl:"name,label"`
-	Task    string      `hcl:"task,optional"`
-	Inputs  cty.Value   `hcl:"inputs,optional"`
-	Next    cty.Value   `hcl:"next,optional"`
-	When    string      `hcl:"when,optional"`
-	IsStart bool        `hcl:"is_start,optional"`
-	Edges   []*NodeEdge `hcl:"edge,block"`
-	// Edges   []*NodeEdge // filled in manually
+// NextStep represents the next step in a workflow with optional conditions
+type NextStep struct {
+	Node      string `yaml:"node,omitempty" json:"node,omitempty"`
+	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
 }
 
 // Workflow represents a workflow definition
 type Workflow struct {
-	Name        string   `hcl:"name,label"`
-	Description string   `hcl:"description,optional"`
-	Triggers    []string `hcl:"triggers,optional"`
-	Nodes       []*Node  `hcl:"node,block"`
+	Name        string    `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string    `yaml:"description,omitempty" json:"description,omitempty"`
+	Triggers    []Trigger `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	Steps       []Step    `yaml:"steps,omitempty" json:"steps,omitempty"`
 }
 
-// ToolDefinition used for serializing tool configurations
-type ToolDefinition map[string]interface{}
+// Trigger represents a trigger definition
+type Trigger struct {
+	Type   string                 `yaml:"type,omitempty" json:"type,omitempty"`
+	Config map[string]interface{} `yaml:"config,omitempty" json:"config,omitempty"`
+}
+
+// Schedule represents a schedule definition
+type Schedule struct {
+	Name     string `yaml:"name,omitempty" json:"name,omitempty"`
+	Cron     string `yaml:"cron,omitempty" json:"cron,omitempty"`
+	Workflow string `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	Enabled  bool   `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+}
 
 // Document represents a document that can be referenced by agents and tasks
 type Document struct {
-	ID          string   `yaml:"id,omitempty" json:"id,omitempty" hcl:"id,label"`
-	Name        string   `yaml:"name,omitempty" json:"name,omitempty" hcl:"name,label"`
-	Description string   `yaml:"description,omitempty" json:"description,omitempty" hcl:"description,optional"`
-	Path        string   `yaml:"path,omitempty" json:"path,omitempty" hcl:"path,optional"`
-	Content     string   `yaml:"content,omitempty" json:"content,omitempty" hcl:"content,optional"`
-	ContentType string   `yaml:"content_type,omitempty" json:"content_type,omitempty" hcl:"content_type,optional"`
-	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty" hcl:"tags,optional"`
-}
-
-type Config struct {
-	LogLevel        string `yaml:"log_level,omitempty" json:"log_level,omitempty" hcl:"log_level,optional"`
-	DefaultProvider string `yaml:"default_provider,omitempty" json:"default_provider,omitempty" hcl:"default_provider,optional"`
-	DefaultModel    string `yaml:"default_model,omitempty" json:"default_model,omitempty" hcl:"default_model,optional"`
-	CacheControl    string `yaml:"cache_control,omitempty" json:"cache_control,omitempty" hcl:"cache_control,optional"`
+	ID          string   `yaml:"id,omitempty" json:"id,omitempty"`
+	Name        string   `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Path        string   `yaml:"path,omitempty" json:"path,omitempty"`
+	Content     string   `yaml:"content,omitempty" json:"content,omitempty"`
+	ContentType string   `yaml:"content_type,omitempty" json:"content_type,omitempty"`
+	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
 }
 
 // LoadFile loads a Team configuration from a file. The file extension is
 // used to determine the configuration format:
 // - .json -> JSON
 // - .yml or .yaml -> YAML
-// - .hcl or .dive -> HCL
 func LoadFile(path string) (*TeamDefinition, error) {
 	// Read the file
 	data, err := os.ReadFile(path)
@@ -185,8 +190,6 @@ func LoadFile(path string) (*TeamDefinition, error) {
 		return LoadJSON(data)
 	case ".yml", ".yaml":
 		return LoadYAML(data)
-	case ".hcl", ".dive":
-		return LoadHCL(data)
 	default:
 		return nil, fmt.Errorf("unsupported file extension: %s", ext)
 	}
@@ -210,70 +213,40 @@ func LoadJSON(data []byte) (*TeamDefinition, error) {
 	return &def, nil
 }
 
-// LoadHCL loads a Team configuration from HCL data
-func LoadHCL(data []byte) (*TeamDefinition, error) {
-	// Call LoadHCLDefinition and convert HCLTeam to TeamDefinition
-	hclTeam, err := LoadHCLDefinition(data, "config.hcl", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var tools []ToolConfig
-	for _, tool := range hclTeam.Tools {
-		tools = append(tools, ToolConfig{
-			"name":    tool.Name,
-			"enabled": tool.Enabled,
-		})
-	}
-
-	// Convert HCLTeam to TeamDefinition
-	return &TeamDefinition{
-		Name:        hclTeam.Name,
-		Description: hclTeam.Description,
-		Agents:      hclTeam.Agents,
-		Tasks:       hclTeam.Tasks,
-		Documents:   hclTeam.Documents,
-		Config:      map[string]any{}, // Initialize empty map
-		Variables:   map[string]any{}, // Initialize empty map
-		Tools:       tools,
-		Workflows:   hclTeam.Workflows,
-	}, nil
-}
-
-// LoadDirectory loads all HCL files from a directory and combines them into a single Environment.
+// LoadDirectory loads all YAML files from a directory and combines them into a single Environment.
 // Files are loaded in lexicographical order. Later files can override values from earlier files.
 func LoadDirectory(dirPath string) (*environment.Environment, error) {
-	// Read all HCL files in the directory
+	// Read all YAML files in the directory
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	// Collect all HCL files
-	var hclFiles []string
+	// Collect all YAML files
+	var yamlFiles []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			ext := strings.ToLower(filepath.Ext(entry.Name()))
-			if ext == ".hcl" || ext == ".dive" {
-				hclFiles = append(hclFiles, filepath.Join(dirPath, entry.Name()))
+			if ext == ".yml" || ext == ".yaml" {
+				yamlFiles = append(yamlFiles, filepath.Join(dirPath, entry.Name()))
 			}
 		}
 	}
 
 	// Sort files for deterministic loading order
-	sort.Strings(hclFiles)
+	sort.Strings(yamlFiles)
 
-	// Load and merge all HCL files
+	// Load and merge all YAML files
 	var combinedDef TeamDefinition
-	for _, file := range hclFiles {
+	for _, file := range yamlFiles {
 		data, err := os.ReadFile(file)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file %s: %w", file, err)
 		}
 
-		def, err := LoadHCL(data)
+		def, err := LoadYAML(data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse HCL file %s: %w", file, err)
+			return nil, fmt.Errorf("failed to parse YAML file %s: %w", file, err)
 		}
 
 		// Merge definitions
@@ -282,7 +255,7 @@ func LoadDirectory(dirPath string) (*environment.Environment, error) {
 
 	// Build environment from combined definition
 	buildOpts := BuildOptions{
-		Logger:     slogger.New(slogger.LevelFromString("debug")), // combinedDef.Config["log_level"].(string))),
+		Logger:     slogger.New(slogger.LevelFromString("debug")),
 		Repository: document.NewMemoryRepository(),
 	}
 
@@ -299,6 +272,35 @@ func mergeDefs(base, override TeamDefinition) TeamDefinition {
 	}
 	if override.Description != "" {
 		result.Description = override.Description
+	}
+
+	// Merge config
+	result.Config = override.Config
+
+	// Merge variables (by name)
+	varMap := make(map[string]Variable)
+	for _, v := range result.Variables {
+		varMap[v.Name] = v
+	}
+	for _, v := range override.Variables {
+		varMap[v.Name] = v
+	}
+	result.Variables = make([]Variable, 0, len(varMap))
+	for _, v := range varMap {
+		result.Variables = append(result.Variables, v)
+	}
+
+	// Merge tools (by name)
+	toolMap := make(map[string]Tool)
+	for _, t := range result.Tools {
+		toolMap[t.Name] = t
+	}
+	for _, t := range override.Tools {
+		toolMap[t.Name] = t
+	}
+	result.Tools = make([]Tool, 0, len(toolMap))
+	for _, t := range toolMap {
+		result.Tools = append(result.Tools, t)
 	}
 
 	// Merge agents (by name)
@@ -353,24 +355,31 @@ func mergeDefs(base, override TeamDefinition) TeamDefinition {
 		result.Documents = append(result.Documents, doc)
 	}
 
-	// Merge variables
-	if result.Variables == nil {
-		result.Variables = make(map[string]any)
+	// Merge triggers (by name)
+	triggerMap := make(map[string]Trigger)
+	for _, trigger := range result.Triggers {
+		triggerMap[trigger.Type] = trigger
 	}
-	for k, v := range override.Variables {
-		result.Variables[k] = v
+	for _, trigger := range override.Triggers {
+		triggerMap[trigger.Type] = trigger
 	}
-
-	// Merge config
-	if result.Config == nil {
-		result.Config = make(map[string]any)
-	}
-	for k, v := range override.Config {
-		result.Config[k] = v
+	result.Triggers = make([]Trigger, 0, len(triggerMap))
+	for _, trigger := range triggerMap {
+		result.Triggers = append(result.Triggers, trigger)
 	}
 
-	// Merge tools
-	result.Tools = append(result.Tools, override.Tools...)
+	// Merge schedules (by name)
+	scheduleMap := make(map[string]Schedule)
+	for _, schedule := range result.Schedules {
+		scheduleMap[schedule.Name] = schedule
+	}
+	for _, schedule := range override.Schedules {
+		scheduleMap[schedule.Name] = schedule
+	}
+	result.Schedules = make([]Schedule, 0, len(scheduleMap))
+	for _, schedule := range scheduleMap {
+		result.Schedules = append(result.Schedules, schedule)
+	}
 
 	return result
 }
@@ -379,7 +388,6 @@ func mergeDefs(base, override TeamDefinition) TeamDefinition {
 // determine the configuration format:
 // - .json -> JSON
 // - .yml or .yaml -> YAML
-// - .hcl or .dive -> HCL
 func (def *TeamDefinition) Save(path string) error {
 	// Determine format from extension
 	ext := strings.ToLower(filepath.Ext(path))
@@ -388,8 +396,6 @@ func (def *TeamDefinition) Save(path string) error {
 		return def.SaveJSON(path)
 	case ".yml", ".yaml":
 		return def.SaveYAML(path)
-	case ".hcl", ".dive":
-		return def.SaveHCL(path)
 	default:
 		return fmt.Errorf("unsupported file extension: %s", ext)
 	}
@@ -413,11 +419,6 @@ func (def *TeamDefinition) SaveJSON(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// SaveHCL writes a Team configuration to an HCL file
-func (def *TeamDefinition) SaveHCL(path string) error {
-	return fmt.Errorf("not implemented")
-}
-
 // Build creates a new Environment from the configuration
 func (def *TeamDefinition) Build(opts ...BuildOption) (*environment.Environment, error) {
 	buildOpts := &BuildOptions{}
@@ -428,10 +429,8 @@ func (def *TeamDefinition) Build(opts ...BuildOption) (*environment.Environment,
 	// Set default logger if not provided
 	if buildOpts.Logger == nil {
 		logLevel := "info"
-		if def.Config != nil {
-			if logLevelVal, ok := def.Config["log_level"]; ok {
-				logLevel = logLevelVal.(string)
-			}
+		if def.Config.Logging.Level != "" {
+			logLevel = def.Config.Logging.Level
 		}
 		buildOpts.Logger = slogger.New(slogger.LevelFromString(logLevel))
 	}
@@ -450,8 +449,10 @@ func (def *TeamDefinition) BuildEnvironment(buildOpts BuildOptions) (*environmen
 	var toolConfigs map[string]map[string]interface{}
 	if def.Tools != nil {
 		toolConfigs = make(map[string]map[string]interface{}, len(def.Tools))
-		for _, toolDef := range def.Tools {
-			toolConfigs[toolDef["name"].(string)] = toolDef
+		for _, tool := range def.Tools {
+			toolConfigs[tool.Name] = map[string]interface{}{
+				"enabled": tool.Enabled,
+			}
 		}
 	}
 
@@ -464,19 +465,17 @@ func (def *TeamDefinition) BuildEnvironment(buildOpts BuildOptions) (*environmen
 	agents := make([]dive.Agent, 0, len(def.Agents))
 	for _, agentDef := range def.Agents {
 		config := Config{}
-		if def.Config != nil {
-			if v, ok := def.Config["log_level"].(string); ok {
-				config.LogLevel = v
-			}
-			if v, ok := def.Config["default_provider"].(string); ok {
-				config.DefaultProvider = v
-			}
-			if v, ok := def.Config["default_model"].(string); ok {
-				config.DefaultModel = v
-			}
-			if v, ok := def.Config["cache_control"].(string); ok {
-				config.CacheControl = v
-			}
+		if def.Config.Logging.Level != "" {
+			config.Logging.Level = def.Config.Logging.Level
+		}
+		if def.Config.Providers.Default != "" {
+			config.Providers.Default = def.Config.Providers.Default
+		}
+		if def.Config.Model != "" {
+			config.Model = def.Config.Model
+		}
+		if def.Config.CacheControl != "" {
+			config.CacheControl = def.Config.CacheControl
 		}
 		agent, err := buildAgent(agentDef, config, toolsMap, buildOpts.Logger, buildOpts.Variables)
 		if err != nil {
@@ -485,8 +484,7 @@ func (def *TeamDefinition) BuildEnvironment(buildOpts BuildOptions) (*environmen
 		agents = append(agents, agent)
 	}
 
-	// Create workflows from tasks
-	// workflows := make([]*workflow.Workflow, 0, len(def.Tasks))
+	// Create tasks
 	var tasks []*workflow.Task
 	for _, taskDef := range def.Tasks {
 		task, err := buildTask(taskDef, agents, buildOpts.Variables)
@@ -496,6 +494,7 @@ func (def *TeamDefinition) BuildEnvironment(buildOpts BuildOptions) (*environmen
 		tasks = append(tasks, task)
 	}
 
+	// Create workflows
 	var workflows []*workflow.Workflow
 	for _, workflowDef := range def.Workflows {
 		workflow, err := buildWorkflow(workflowDef, tasks)

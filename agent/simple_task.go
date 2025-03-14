@@ -9,12 +9,13 @@ import (
 var _ dive.Task = &SimpleTask{}
 
 type SimpleTask struct {
-	name           string
-	description    string
-	expectedOutput string
-	assignedAgent  dive.Agent
-	dependencies   []string
-	prompt         string
+	name          string
+	description   string
+	inputs        map[string]dive.Input
+	outputs       map[string]dive.Output
+	assignedAgent dive.Agent
+	dependencies  []string
+	prompt        string
 }
 
 func (t *SimpleTask) Name() string {
@@ -25,8 +26,12 @@ func (t *SimpleTask) Description() string {
 	return t.description
 }
 
-func (t *SimpleTask) ExpectedOutput() string {
-	return t.expectedOutput
+func (t *SimpleTask) Inputs() map[string]dive.Input {
+	return t.inputs
+}
+
+func (t *SimpleTask) Outputs() map[string]dive.Output {
+	return t.outputs
 }
 
 func (t *SimpleTask) Agent() dive.Agent {
@@ -49,9 +54,21 @@ func (t *SimpleTask) Prompt(opts dive.TaskPromptOptions) string {
 	if len(contextParts) > 0 {
 		prompt += "\n\nContext:\n" + strings.Join(contextParts, "\n")
 	}
-	if t.expectedOutput != "" {
-		prompt += "\n\nExpected output:\n" + t.expectedOutput
+
+	// Add output descriptions if any exist
+	if len(t.outputs) > 0 {
+		prompt += "\n\nExpected Outputs:"
+		for name, output := range t.outputs {
+			prompt += "\n- " + name
+			if output.Description != "" {
+				prompt += ": " + output.Description
+			}
+			if output.Format != "" {
+				prompt += "\n  Format: " + output.Format
+			}
+		}
 	}
+
 	return prompt
 }
 

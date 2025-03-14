@@ -6,39 +6,30 @@ import (
 	"github.com/getstingrai/dive"
 )
 
-// Input defines an expected input parameter
-type Input struct {
-	Name        string
-	Type        string
-	Description string
-	Required    bool
-	Default     interface{}
-}
-
-// Output defines an expected output parameter
-type Output struct {
-	Name        string
-	Type        string
-	Description string
+type Trigger struct {
+	Type   string
+	Config map[string]interface{}
 }
 
 // Workflow defines a repeatable process as a graph of tasks to be executed
 type Workflow struct {
 	name        string
 	description string
-	inputs      map[string]Input
-	outputs     map[string]Output
+	inputs      map[string]dive.Input
+	outputs     map[string]dive.Output
 	graph       *Graph
 	tasks       []dive.Task
+	triggers    []Trigger
 }
 
 // WorkflowOptions configures a new workflow
 type WorkflowOptions struct {
 	Name        string
 	Description string
-	Inputs      map[string]Input
-	Outputs     map[string]Output
+	Inputs      map[string]dive.Input
+	Outputs     map[string]dive.Output
 	Graph       *Graph
+	Triggers    []Trigger
 }
 
 // NewWorkflow creates and validates a workflow
@@ -58,6 +49,7 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 		inputs:      opts.Inputs,
 		outputs:     opts.Outputs,
 		graph:       opts.Graph,
+		triggers:    opts.Triggers,
 	}
 	if err := w.Validate(); err != nil {
 		return nil, err
@@ -73,11 +65,11 @@ func (w *Workflow) Description() string {
 	return w.description
 }
 
-func (w *Workflow) Inputs() map[string]Input {
+func (w *Workflow) Inputs() map[string]dive.Input {
 	return w.inputs
 }
 
-func (w *Workflow) Outputs() map[string]Output {
+func (w *Workflow) Outputs() map[string]dive.Output {
 	return w.outputs
 }
 
@@ -87,6 +79,10 @@ func (w *Workflow) Tasks() []dive.Task {
 
 func (w *Workflow) Graph() *Graph {
 	return w.graph
+}
+
+func (w *Workflow) Triggers() []Trigger {
+	return w.triggers
 }
 
 // Validate checks if the workflow is properly configured

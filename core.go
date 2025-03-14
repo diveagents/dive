@@ -37,6 +37,24 @@ type TaskPromptOptions struct {
 	Context string
 }
 
+// Input defines an expected input parameter
+type Input struct {
+	Name        string      `json:"name"`
+	Type        string      `json:"type,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Required    bool        `json:"required,omitempty"`
+	Default     interface{} `json:"default,omitempty"`
+}
+
+// Output defines an expected output parameter
+type Output struct {
+	Name        string      `json:"name"`
+	Type        string      `json:"type,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Format      string      `json:"format,omitempty"`
+	Default     interface{} `json:"default,omitempty"`
+}
+
 // Task represents a unit of work that can be executed
 type Task interface {
 	// Name returns the name of the task
@@ -45,14 +63,17 @@ type Task interface {
 	// Description returns the description of the task
 	Description() string
 
-	// ExpectedOutput returns what output is expected from this task
-	ExpectedOutput() string
-
 	// Agent returns the agent assigned to this task, if any
 	Agent() Agent
 
 	// Validate checks if the task is properly configured
 	Validate() error
+
+	// Inputs returns the inputs for the task
+	Inputs() map[string]Input
+
+	// Outputs returns the outputs for the task
+	Outputs() map[string]Output
 
 	// Execute runs the task and returns its result
 	// Execute(ctx context.Context) (*TaskResult, error)

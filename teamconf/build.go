@@ -13,7 +13,6 @@ import (
 	"github.com/getstingrai/dive/providers/openai"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
-	"github.com/zclconf/go-cty/cty"
 )
 
 type BuildOptions struct {
@@ -134,6 +133,11 @@ func buildAgent(
 		cacheControl = globalConfig.CacheControl
 	}
 
+	logLevel := agentDef.LogLevel
+	if logLevel == "" {
+		logLevel = globalConfig.LogLevel
+	}
+
 	agent := agent.NewAgent(agent.AgentOptions{
 		Name:               agentDef.Name,
 		Description:        agentDef.Description,
@@ -145,7 +149,7 @@ func buildAgent(
 		Tools:              agentTools,
 		ChatTimeout:        chatTimeout,
 		CacheControl:       cacheControl,
-		LogLevel:           globalConfig.LogLevel,
+		LogLevel:           logLevel,
 		Logger:             logger,
 		ToolIterationLimit: agentDef.ToolIterationLimit,
 	})
@@ -176,17 +180,38 @@ func buildTask(taskDef Task, agents []dive.Agent, variables map[string]interface
 		}
 	}
 
+	// Convert inputs from config format to core format
+	inputs := make(map[string]dive.Input)
+	for name, input := range taskDef.Inputs {
+		inputs[name] = dive.Input{
+			Name:        name,
+			Type:        input.Type,
+			Description: input.Description,
+			Required:    input.Required,
+			Default:     input.Default,
+		}
+	}
+
+	// Convert outputs from config format to core format
+	outputs := make(map[string]dive.Output)
+	for name, output := range taskDef.Outputs {
+		outputs[name] = dive.Output{
+			Name:        name,
+			Type:        output.Type,
+			Description: output.Description,
+			Format:      output.Format,
+			Default:     output.Default,
+		}
+	}
+
 	return workflow.NewTask(workflow.TaskOptions{
-		Name:           taskDef.Name,
-		Description:    taskDef.Description,
-		Kind:           taskDef.Kind,
-		Inputs:         map[string]workflow.Input{},
-		Outputs:        map[string]workflow.Output{},
-		ExpectedOutput: taskDef.ExpectedOutput,
-		Agent:          assignedAgent,
-		OutputFormat:   dive.OutputFormat(taskDef.OutputFormat),
-		OutputFile:     taskDef.OutputFile,
-		Timeout:        timeout,
+		Name:        taskDef.Name,
+		Description: taskDef.Description,
+		Kind:        taskDef.Kind,
+		Inputs:      inputs,
+		Outputs:     outputs,
+		Agent:       assignedAgent,
+		Timeout:     timeout,
 	}), nil
 }
 
@@ -195,18 +220,20 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 	for _, task := range tasks {
 		tasksByName[task.Name()] = task
 	}
+
 	nodes := map[string]*workflow.Node{}
-	for _, node := range workflowDef.Nodes {
-		task, ok := tasksByName[node.Task]
+	for _, step := range workflowDef.Steps {
+		task, ok := tasksByName[step.Task]
 		if !ok {
-			return nil, fmt.Errorf("task %q not found", node.Task)
+			return nil, fmt.Errorf("task %q not found", step.Task)
 		}
+
 		var edges []*workflow.Edge
-		for _, edge := range node.Edges {
+		for _, next := range step.Next {
 			var condition workflow.Condition
-			if edge.Condition != "" {
+			if next.Condition != "" {
 				var err error
-				condition, err = workflow.NewEvalCondition(edge.Condition, map[string]any{
+				condition, err = workflow.NewEvalCondition(next.Condition, map[string]any{
 					"node": nil,
 					"task": nil,
 				})
@@ -215,93 +242,56 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 				}
 			}
 			edges = append(edges, &workflow.Edge{
-				To:        edge.Node,
+				To:        next.Node,
 				Condition: condition,
 			})
 		}
-		inputs := map[string]any{}
-		inputsMap := node.Inputs.AsValueMap()
-		for k, v := range inputsMap {
-			converted, err := convertCtyValue(v)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert input %q: %w", k, err)
+
+		// Handle each block if present
+		var each *workflow.EachBlock
+		if step.Each != nil {
+			each = &workflow.EachBlock{
+				Array:         step.Each.Array,
+				As:            step.Each.As,
+				Parallel:      step.Each.Parallel,
+				MaxConcurrent: step.Each.MaxConcurrent,
 			}
-			inputs[k] = converted
 		}
-		nodes[node.Name] = workflow.NewNode(workflow.NodeOptions{
-			Name:    node.Name,
+
+		// Convert inputs from map[string]string to map[string]interface{}
+		inputs := make(map[string]interface{})
+		for k, v := range step.Inputs {
+			inputs[k] = v
+		}
+		fmt.Printf("inputs: %+v\n", inputs)
+
+		nodes[step.Name] = workflow.NewNode(workflow.NodeOptions{
+			Name:    step.Name,
 			Task:    task,
 			Next:    edges,
-			IsStart: node.IsStart,
+			IsStart: len(nodes) == 0, // First step is the start node
 			Inputs:  inputs,
+			Each:    each,
 		})
 	}
+
 	graph := workflow.NewGraph(workflow.GraphOptions{
 		Nodes: nodes,
 	})
+
+	// Convert triggers from config to workflow format
+	var triggers []workflow.Trigger
+	for _, trigger := range workflowDef.Triggers {
+		triggers = append(triggers, workflow.Trigger{
+			Type:   trigger.Type,
+			Config: trigger.Config,
+		})
+	}
+
 	return workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name:        workflowDef.Name,
 		Description: workflowDef.Description,
-		// Inputs:      workflowDef.Inputs,
-		// Triggers:    workflowDef.Triggers,
-		Graph: graph,
+		Graph:       graph,
+		Triggers:    triggers,
 	})
-}
-
-func convertCtyValue(v cty.Value) (interface{}, error) {
-	switch v.Type() {
-	case cty.String:
-		return v.AsString(), nil
-	case cty.Number:
-		bf := v.AsBigFloat()
-		// Check if it's an integer value
-		if i, acc := bf.Int64(); acc == 0 {
-			// It's exactly representable as an int64
-			return i, nil
-		}
-		// It's a floating point number
-		f, _ := bf.Float64()
-		return f, nil
-	case cty.Bool:
-		return v.True(), nil
-	default:
-		// Handle list types
-		if v.Type().IsListType() {
-			length := v.LengthInt()
-			result := make([]interface{}, length)
-			for i := 0; i < length; i++ {
-				element := v.Index(cty.NumberIntVal(int64(i)))
-				converted, err := convertCtyValue(element)
-				if err != nil {
-					return nil, fmt.Errorf("error converting list element %d: %w", i, err)
-				}
-				result[i] = converted
-			}
-			return result, nil
-		} else if v.Type().IsTupleType() {
-			length := v.LengthInt()
-			result := make([]interface{}, length)
-			for i := 0; i < length; i++ {
-				element := v.Index(cty.NumberIntVal(int64(i)))
-				converted, err := convertCtyValue(element)
-				if err != nil {
-					return nil, fmt.Errorf("error converting tuple element %d: %w", i, err)
-				}
-				result[i] = converted
-			}
-			return result, nil
-		} else if v.Type().IsObjectType() {
-			// TODO: good error for non-string keys?
-			result := make(map[string]interface{})
-			for k, v := range v.AsValueMap() {
-				converted, err := convertCtyValue(v)
-				if err != nil {
-					return nil, fmt.Errorf("error converting object field %q: %w", k, err)
-				}
-				result[k] = converted
-			}
-			return result, nil
-		}
-		return nil, fmt.Errorf("unsupported type: %s", v.Type().FriendlyName())
-	}
 }

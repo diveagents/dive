@@ -121,9 +121,15 @@ func TestAgentTask(t *testing.T) {
 	defer agent.Stop(ctx)
 
 	stream, err := agent.Work(ctx, &SimpleTask{
-		name:           "Limerick",
-		description:    "Write a limerick about a cat",
-		expectedOutput: "A limerick about a cat",
+		name:        "Limerick",
+		description: "Write a limerick about a cat",
+		outputs: map[string]dive.Output{
+			"poem": {
+				Name:        "poem",
+				Type:        "string",
+				Description: "A limerick about a cat",
+			},
+		},
 	})
 	require.NoError(t, err)
 

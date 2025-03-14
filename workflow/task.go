@@ -14,33 +14,25 @@ var _ dive.Task = &Task{}
 
 // TaskOptions are used to create a Task
 type TaskOptions struct {
-	Name           string
-	Description    string
-	Kind           string
-	Inputs         map[string]Input
-	Outputs        map[string]Output
-	Timeout        time.Duration
-	Agent          dive.Agent
-	ExpectedOutput string
-	OutputFormat   dive.OutputFormat
-	OutputFile     string
-	OutputObject   interface{}
+	Name        string
+	Description string
+	Kind        string
+	Inputs      map[string]dive.Input
+	Outputs     map[string]dive.Output
+	Timeout     time.Duration
+	Agent       dive.Agent
 }
 
 // Task represents one unit of work in a workflow
 type Task struct {
-	name           string
-	description    string
-	kind           string
-	inputs         map[string]Input
-	outputs        map[string]Output
-	timeout        time.Duration
-	agent          dive.Agent
-	expectedOutput string
-	outputFormat   dive.OutputFormat
-	outputFile     string
-	outputObject   interface{}
-	nameIsRandom   bool
+	name         string
+	description  string
+	kind         string
+	inputs       map[string]dive.Input
+	outputs      map[string]dive.Output
+	timeout      time.Duration
+	agent        dive.Agent
+	nameIsRandom bool
 }
 
 // NewTask creates a new Task from a TaskOptions
@@ -50,33 +42,27 @@ func NewTask(opts TaskOptions) *Task {
 		opts.Name = fmt.Sprintf("task-%s", petname.Generate(2, "-"))
 		nameIsRandom = true
 	}
+	fmt.Printf("inputs: %+v\n", opts.Inputs)
+	fmt.Printf("outputs: %+v\n", opts.Outputs)
 	return &Task{
-		name:           opts.Name,
-		description:    opts.Description,
-		kind:           opts.Kind,
-		inputs:         opts.Inputs,
-		outputs:        opts.Outputs,
-		timeout:        opts.Timeout,
-		agent:          opts.Agent,
-		expectedOutput: opts.ExpectedOutput,
-		outputFormat:   opts.OutputFormat,
-		outputFile:     opts.OutputFile,
-		outputObject:   opts.OutputObject,
-		nameIsRandom:   nameIsRandom,
+		name:         opts.Name,
+		description:  opts.Description,
+		kind:         opts.Kind,
+		inputs:       opts.Inputs,
+		outputs:      opts.Outputs,
+		timeout:      opts.Timeout,
+		agent:        opts.Agent,
+		nameIsRandom: nameIsRandom,
 	}
 }
 
 func (t *Task) Name() string                    { return t.name }
 func (t *Task) Description() string             { return t.description }
 func (t *Task) Kind() string                    { return t.kind }
-func (t *Task) Inputs() map[string]Input        { return t.inputs }
-func (t *Task) Outputs() map[string]Output      { return t.outputs }
+func (t *Task) Inputs() map[string]dive.Input   { return t.inputs }
+func (t *Task) Outputs() map[string]dive.Output { return t.outputs }
 func (t *Task) Timeout() time.Duration          { return t.timeout }
 func (t *Task) Agent() dive.Agent               { return t.agent }
-func (t *Task) ExpectedOutput() string          { return t.expectedOutput }
-func (t *Task) OutputFormat() dive.OutputFormat { return t.outputFormat }
-func (t *Task) OutputFile() string              { return t.outputFile }
-func (t *Task) OutputObject() interface{}       { return t.outputObject }
 
 // Validate checks if the task is properly configured
 func (t *Task) Validate() error {
@@ -85,14 +71,6 @@ func (t *Task) Validate() error {
 	}
 	if t.description == "" {
 		return fmt.Errorf("description required for task %q", t.name)
-	}
-	if t.outputObject != nil && t.outputFormat != dive.OutputJSON {
-		return fmt.Errorf("expected json output format for task %q", t.name)
-	}
-	if t.outputFile != "" {
-		if !isSimpleFilename(t.outputFile) {
-			return fmt.Errorf("output file name %q contains invalid characters", t.outputFile)
-		}
 	}
 	return nil
 }
@@ -109,19 +87,20 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 	if t.description != "" {
 		lines = append(lines, t.description)
 	}
-	if t.expectedOutput != "" {
-		lines = append(lines, fmt.Sprintf("Please respond with %s.", t.expectedOutput))
-	}
-	if t.outputFormat != "" {
-		lines = append(lines, fmt.Sprintf("Your response must be in %s format.", t.outputFormat))
+	if len(t.outputs) > 0 {
+		outputLines := []string{"Please provide the following outputs:"}
+		for name, output := range t.outputs {
+			outputLines = append(outputLines, fmt.Sprintf("- %s (%s): %s", name, output.Type, output.Description))
+			if output.Format != "" {
+				outputLines = append(outputLines, fmt.Sprintf("  Format: %s", output.Format))
+			}
+		}
+		lines = append(lines, strings.Join(outputLines, "\n"))
 	}
 	promptParts := []string{
 		formatBlock(intro, "task", strings.Join(lines, "\n\n")),
 	}
 	var contextParts []string
-	// if t.context != "" {
-	// 	contextParts = append(contextParts, t.context)
-	// }
 	if opts.Context != "" {
 		contextParts = append(contextParts, opts.Context)
 	}
@@ -129,10 +108,6 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 		contextHeading := "Use this context while working on the task:"
 		promptParts = append(promptParts, formatBlock(contextHeading, "context", strings.Join(contextParts, "\n\n")))
 	}
-	// if t.depOutput != "" {
-	// 	depHeading := "Here is the output from this task's dependencies:"
-	// 	promptParts = append(promptParts, formatBlock(depHeading, "dependencies", t.depOutput))
-	// }
 	promptParts = append(promptParts, "\n\nPlease begin working on the task.")
 	return strings.Join(promptParts, "\n\n")
 }

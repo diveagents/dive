@@ -21,6 +21,13 @@ type Edge struct {
 	Condition Condition
 }
 
+type EachBlock struct {
+	Array         string
+	As            string
+	Parallel      bool
+	MaxConcurrent int
+}
+
 type Node struct {
 	name    string
 	task    dive.Task
@@ -28,6 +35,7 @@ type Node struct {
 	outputs map[string]interface{}
 	next    []*Edge
 	isStart bool
+	each    *EachBlock
 }
 
 type NodeOptions struct {
@@ -37,6 +45,7 @@ type NodeOptions struct {
 	Outputs map[string]interface{}
 	Next    []*Edge
 	IsStart bool
+	Each    *EachBlock
 }
 
 func NewNode(opts NodeOptions) *Node {
@@ -47,6 +56,7 @@ func NewNode(opts NodeOptions) *Node {
 		outputs: opts.Outputs,
 		next:    opts.Next,
 		isStart: opts.IsStart,
+		each:    opts.Each,
 	}
 }
 
@@ -76,6 +86,10 @@ func (n *Node) Outputs() map[string]interface{} {
 
 func (n *Node) Next() []*Edge {
 	return n.next
+}
+
+func (n *Node) Each() *EachBlock {
+	return n.each
 }
 
 type Graph struct {
