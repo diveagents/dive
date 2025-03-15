@@ -79,11 +79,12 @@ type Task struct {
 
 // Step represents a single step in a workflow
 type Step struct {
-	Name   string            `yaml:"name,omitempty" json:"name,omitempty"`
-	Task   string            `yaml:"task,omitempty" json:"task,omitempty"`
-	Inputs map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	Each   *EachBlock        `yaml:"each,omitempty" json:"each,omitempty"`
-	Next   []NextStep        `yaml:"next,omitempty" json:"next,omitempty"`
+	Name    string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Task    string            `yaml:"task,omitempty" json:"task,omitempty"`
+	Inputs  map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Each    *EachBlock        `yaml:"each,omitempty" json:"each,omitempty"`
+	Next    []NextStep        `yaml:"next,omitempty" json:"next,omitempty"`
+	IsStart bool              `yaml:"is_start,omitempty" json:"is_start,omitempty"`
 }
 
 // EachBlock represents iteration configuration for a step

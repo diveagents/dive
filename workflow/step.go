@@ -64,6 +64,10 @@ func (n *Step) IsStart() bool {
 	return n.isStart
 }
 
+func (n *Step) SetIsStart(isStart bool) {
+	n.isStart = isStart
+}
+
 func (n *Step) Name() string {
 	return n.name
 }

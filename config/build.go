@@ -225,6 +225,11 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 	for _, task := range tasks {
 		tasksByName[task.Name()] = task
 	}
+	var foundStart bool
+
+	if len(workflowDef.Steps) == 0 {
+		return nil, fmt.Errorf("no steps found")
+	}
 
 	steps := []*workflow.Step{}
 	for _, step := range workflowDef.Steps {
@@ -251,7 +256,7 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			})
 		}
 
-		// Handle each block if present
+		// Handle "each" block if one is present
 		var each *workflow.EachBlock
 		if step.Each != nil {
 			each = &workflow.EachBlock{
@@ -268,12 +273,21 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			inputs[k] = v
 		}
 
+		if step.IsStart {
+			if foundStart {
+				return nil, fmt.Errorf("multiple start steps found")
+			} else {
+				foundStart = true
+			}
+		}
+
 		step := workflow.NewStep(workflow.StepOptions{
-			Name:   step.Name,
-			Task:   task,
-			Next:   edges,
-			Inputs: inputs,
-			Each:   each,
+			Name:    step.Name,
+			Task:    task,
+			Next:    edges,
+			Inputs:  inputs,
+			Each:    each,
+			IsStart: step.IsStart,
 		})
 		steps = append(steps, step)
 	}
@@ -285,6 +299,11 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			Type:   trigger.Type,
 			Config: trigger.Config,
 		})
+	}
+
+	// Set start step if one is not found
+	if !foundStart {
+		steps[0].SetIsStart(true)
 	}
 
 	return workflow.NewWorkflow(workflow.WorkflowOptions{
