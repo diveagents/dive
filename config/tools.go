@@ -1,4 +1,4 @@
-package teamconf
+package config
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"github.com/mendableai/firecrawl-go"
 )
 
-func populateToolConfig(config map[string]interface{}, options interface{}) error {
+func convertToolConfig(config map[string]interface{}, options interface{}) error {
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal tool config: %w", err)
@@ -55,7 +55,7 @@ func initializeTools(toolConfigs map[string]map[string]interface{}) (map[string]
 		}
 		var options tools.FirecrawlScrapeToolOptions
 		if config, ok := toolConfigs["firecrawl_scrape"]; ok {
-			if err := populateToolConfig(config, &options); err != nil {
+			if err := convertToolConfig(config, &options); err != nil {
 				return nil, fmt.Errorf("failed to populate firecrawl tool config: %w", err)
 			}
 		}
@@ -66,7 +66,7 @@ func initializeTools(toolConfigs map[string]map[string]interface{}) (map[string]
 	if enabledToolsSet["file_read"] {
 		var options tools.FileReadToolOptions
 		if config, ok := toolConfigs["file_read"]; ok {
-			if err := populateToolConfig(config, &options); err != nil {
+			if err := convertToolConfig(config, &options); err != nil {
 				return nil, fmt.Errorf("failed to populate file_read tool config: %w", err)
 			}
 		}
@@ -76,7 +76,7 @@ func initializeTools(toolConfigs map[string]map[string]interface{}) (map[string]
 	if enabledToolsSet["file_write"] {
 		var options tools.FileWriteToolOptions
 		if config, ok := toolConfigs["file_write"]; ok {
-			if err := populateToolConfig(config, &options); err != nil {
+			if err := convertToolConfig(config, &options); err != nil {
 				return nil, fmt.Errorf("failed to populate file_write tool config: %w", err)
 			}
 		}
@@ -86,7 +86,7 @@ func initializeTools(toolConfigs map[string]map[string]interface{}) (map[string]
 	if enabledToolsSet["directory_list"] {
 		var options tools.DirectoryListToolOptions
 		if config, ok := toolConfigs["directory_list"]; ok {
-			if err := populateToolConfig(config, &options); err != nil {
+			if err := convertToolConfig(config, &options); err != nil {
 				return nil, fmt.Errorf("failed to populate directory_list tool config: %w", err)
 			}
 		}

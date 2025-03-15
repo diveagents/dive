@@ -7,6 +7,7 @@ import (
 )
 
 type Trigger struct {
+	Name   string
 	Type   string
 	Config map[string]interface{}
 }
@@ -17,9 +18,10 @@ type Workflow struct {
 	description string
 	inputs      map[string]dive.Input
 	outputs     map[string]dive.Output
+	steps       []*Step
 	graph       *Graph
 	tasks       []dive.Task
-	triggers    []Trigger
+	triggers    []*Trigger
 }
 
 // WorkflowOptions configures a new workflow
@@ -28,8 +30,8 @@ type WorkflowOptions struct {
 	Description string
 	Inputs      map[string]dive.Input
 	Outputs     map[string]dive.Output
-	Graph       *Graph
-	Triggers    []Trigger
+	Steps       []*Step
+	Triggers    []*Trigger
 }
 
 // NewWorkflow creates and validates a workflow
@@ -37,10 +39,11 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("workflow name required")
 	}
-	if opts.Graph == nil {
-		return nil, fmt.Errorf("graph required")
+	if len(opts.Steps) == 0 {
+		return nil, fmt.Errorf("steps required")
 	}
-	if err := opts.Graph.Validate(); err != nil {
+	graph := NewGraph(opts.Steps)
+	if err := graph.Validate(); err != nil {
 		return nil, fmt.Errorf("graph validation failed: %w", err)
 	}
 	w := &Workflow{
@@ -48,7 +51,8 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 		description: opts.Description,
 		inputs:      opts.Inputs,
 		outputs:     opts.Outputs,
-		graph:       opts.Graph,
+		steps:       opts.Steps,
+		graph:       graph,
 		triggers:    opts.Triggers,
 	}
 	if err := w.Validate(); err != nil {
@@ -81,7 +85,7 @@ func (w *Workflow) Graph() *Graph {
 	return w.graph
 }
 
-func (w *Workflow) Triggers() []Trigger {
+func (w *Workflow) Triggers() []*Trigger {
 	return w.triggers
 }
 
@@ -90,27 +94,16 @@ func (w *Workflow) Validate() error {
 	if w.name == "" {
 		return fmt.Errorf("workflow name required")
 	}
-	// taskNames := make(map[string]bool, len(w.tasks))
-	// for _, task := range w.tasks {
-	// 	taskName := task.Name()
-	// 	if taskName == "" {
-	// 		return fmt.Errorf("task name required")
-	// 	}
-	// 	if _, exists := taskNames[taskName]; exists {
-	// 		return fmt.Errorf("duplicate task name %q", taskName)
-	// 	}
-	// 	taskNames[taskName] = true
-	// }
 	if w.graph == nil {
 		return fmt.Errorf("graph required")
 	}
-	startNode := w.graph.Start()
-	if startNode == nil {
+	startStep := w.graph.Start()
+	if startStep == nil {
 		return fmt.Errorf("graph start task required")
 	}
 	tasksMap := map[string]dive.Task{}
-	for _, node := range w.graph.nodes {
-		tasksMap[node.Task().Name()] = node.Task()
+	for _, step := range w.graph.steps {
+		tasksMap[step.Task().Name()] = step.Task()
 	}
 	for _, nodeName := range w.graph.Names() {
 		node, ok := w.graph.Get(nodeName)

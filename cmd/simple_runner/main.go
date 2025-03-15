@@ -8,18 +8,12 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/getstingrai/dive/teamconf"
+	"github.com/getstingrai/dive/config"
 	"github.com/getstingrai/dive/workflow"
 )
 
 var (
-	boldStyle = color.New(color.Bold)
-
-	successStyle = color.New(color.FgGreen)
-
 	errorStyle = color.New(color.FgRed)
-
-	infoStyle = color.New(color.FgBlue)
 )
 
 func fatal(msg string, args ...interface{}) {
@@ -57,7 +51,7 @@ func main() {
 
 	ctx := context.Background()
 
-	env, err := teamconf.LoadDirectory(filePath)
+	env, err := config.LoadDirectory(filePath)
 	if err != nil {
 		fatal(err.Error())
 	}

@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"errors"
 
 	"github.com/getstingrai/dive/workflow"
 )
@@ -12,11 +13,14 @@ type Trigger struct {
 	env       *Environment
 }
 
-func NewTrigger(name string, env *Environment) *Trigger {
+func NewTrigger(name string) *Trigger {
 	return &Trigger{
 		name: name,
-		env:  env,
 	}
+}
+
+func (t *Trigger) SetEnvironment(env *Environment) {
+	t.env = env
 }
 
 func (t *Trigger) Name() string {
@@ -38,6 +42,9 @@ func (t *Trigger) Unsubscribe(workflow *workflow.Workflow) error {
 }
 
 func (t *Trigger) Fire(ctx context.Context, input map[string]interface{}) ([]*Execution, error) {
+	if t.env == nil {
+		return nil, errors.New("trigger not associated with an environment")
+	}
 	var executions []*Execution
 	for _, w := range t.workflows {
 		execution, err := t.env.StartWorkflow(ctx, w, input)

@@ -42,24 +42,25 @@ func TestNewEnvironment(t *testing.T) {
 
 	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name: "Poetry Writing",
-		Graph: workflow.NewGraph(workflow.GraphOptions{
-			Nodes: map[string]*workflow.Node{
-				"Write Poem": workflow.NewNode(workflow.NodeOptions{
-					IsStart: true,
-					Task: workflow.NewTask(workflow.TaskOptions{
-						Name:  "Write a Poem",
-						Agent: a,
-					}),
-					Next: []*workflow.Edge{{To: "Write Summary"}},
+		Steps: []*workflow.Step{
+			workflow.NewStep(workflow.StepOptions{
+				IsStart: true,
+				Name:    "Write a Poem",
+				Task: workflow.NewTask(workflow.TaskOptions{
+					Name:        "Write a Poem",
+					Description: "Write a limerick about cabbage",
+					Agent:       a,
 				}),
-				"Write Summary": workflow.NewNode(workflow.NodeOptions{
-					Task: workflow.NewTask(workflow.TaskOptions{
-						Name:  "Write a summary",
-						Agent: a,
-					}),
+				Next: []*workflow.Edge{{To: "Write Summary"}},
+			}),
+			workflow.NewStep(workflow.StepOptions{
+				Name: "Summary",
+				Task: workflow.NewTask(workflow.TaskOptions{
+					Name:  "Summary",
+					Agent: a,
 				}),
-			},
-		}),
+			}),
+		},
 	})
 	require.NoError(t, err)
 
@@ -91,7 +92,7 @@ func TestNewEnvironment(t *testing.T) {
 	require.Equal(t, 1, len(pathStates))
 	s0 := pathStates[0]
 	require.Equal(t, PathStatusCompleted, s0.Status)
-	require.Equal(t, "Write Summary", s0.CurrentNode.Name())
+	require.Equal(t, "Write Summary", s0.CurrentStep.Name())
 	require.Equal(t, "A summary of that great poem", s0.NodeOutputs["Write Summary"])
 	require.Equal(t, "A haiku about the fall", s0.NodeOutputs["Write Poem"])
 }
@@ -205,17 +206,16 @@ func TestExecutionStats(t *testing.T) {
 
 	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name: "Stats Test",
-		Graph: workflow.NewGraph(workflow.GraphOptions{
-			Nodes: map[string]*workflow.Node{
-				"Task1": workflow.NewNode(workflow.NodeOptions{
-					IsStart: true,
-					Task: workflow.NewTask(workflow.TaskOptions{
-						Name:  "Test Task",
-						Agent: mockAgent,
-					}),
+		Steps: []*workflow.Step{
+			workflow.NewStep(workflow.StepOptions{
+				IsStart: true,
+				Name:    "Task1",
+				Task: workflow.NewTask(workflow.TaskOptions{
+					Name:  "Test Task",
+					Agent: mockAgent,
 				}),
-			},
-		}),
+			}),
+		},
 	})
 	require.NoError(t, err)
 
@@ -275,17 +275,16 @@ func TestExecutionCancellation(t *testing.T) {
 
 	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name: "Cancellation Test",
-		Graph: workflow.NewGraph(workflow.GraphOptions{
-			Nodes: map[string]*workflow.Node{
-				"SlowTask": workflow.NewNode(workflow.NodeOptions{
-					IsStart: true,
-					Task: workflow.NewTask(workflow.TaskOptions{
-						Name:  "Slow Task",
-						Agent: mockAgent,
-					}),
+		Steps: []*workflow.Step{
+			workflow.NewStep(workflow.StepOptions{
+				IsStart: true,
+				Name:    "SlowTask",
+				Task: workflow.NewTask(workflow.TaskOptions{
+					Name:  "Slow Task",
+					Agent: mockAgent,
 				}),
-			},
-		}),
+			}),
+		},
 	})
 	require.NoError(t, err)
 

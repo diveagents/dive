@@ -26,7 +26,7 @@ const (
 type PathState struct {
 	ID          string
 	Status      PathStatus
-	CurrentNode *workflow.Node
+	CurrentStep *workflow.Step
 	StartTime   time.Time
 	EndTime     time.Time
 	Error       error
@@ -38,7 +38,7 @@ func (p *PathState) Copy() *PathState {
 	return &PathState{
 		ID:          p.ID,
 		Status:      p.Status,
-		CurrentNode: p.CurrentNode,
+		CurrentStep: p.CurrentStep,
 		StartTime:   p.StartTime,
 		EndTime:     p.EndTime,
 		Error:       p.Error,
@@ -60,7 +60,7 @@ const (
 
 type executionPath struct {
 	id          string
-	currentNode *workflow.Node
+	currentStep *workflow.Step
 }
 
 type pathUpdate struct {
@@ -214,7 +214,7 @@ func (e *Execution) run(ctx context.Context) error {
 	e.logger.Info(
 		"workflow execution started",
 		"workflow_name", e.workflow.Name(),
-		"start_node", graph.Start()[0].Name(),
+		"start_step", graph.Start()[0].Name(),
 	)
 
 	// Channel for path updates
@@ -222,10 +222,10 @@ func (e *Execution) run(ctx context.Context) error {
 	activePaths := make(map[string]*executionPath)
 
 	// Start initial paths
-	for i, startNode := range graph.Start() {
+	for i, startStep := range graph.Start() {
 		initialPath := &executionPath{
 			id:          fmt.Sprintf("path-%d", i+1),
-			currentNode: startNode,
+			currentStep: startStep,
 		}
 		activePaths[initialPath.id] = initialPath
 		e.addPath(initialPath)
@@ -252,7 +252,7 @@ func (e *Execution) run(ctx context.Context) error {
 			// Store task output and update path state
 			path := activePaths[update.pathID]
 			e.updatePathState(update.pathID, func(state *PathState) {
-				fmt.Println("updatePathState", update.pathID, path.currentNode.TaskName(), update.nodeOutput)
+				fmt.Println("updatePathState", update.pathID, path.currentStep.TaskName(), update.nodeOutput)
 				state.NodeOutputs[update.nodeName] = update.nodeOutput
 				if update.isDone {
 					state.Status = PathStatusCompleted
@@ -309,7 +309,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		With("path_id", path.id).
 		With("execution_id", e.id)
 
-	logger.Info("running path", "node", path.currentNode.Name())
+	logger.Info("running path", "step", path.currentStep.Name())
 
 	// Update path state to running
 	e.updatePathState(path.id, func(state *PathState) {
@@ -331,8 +331,8 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 
 	for {
 		// Get agent for current task
-		currentNode := path.currentNode
-		task := currentNode.Task()
+		currentStep := path.currentStep
+		task := currentStep.Task()
 		var agent dive.Agent
 		if task.Agent() != nil {
 			agent = task.Agent()
@@ -342,7 +342,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 
 		// Update path state with current task
 		e.updatePathState(path.id, func(state *PathState) {
-			state.CurrentNode = currentNode
+			state.CurrentStep = currentStep
 		})
 
 		result, err := executeTask(ctx, agent, task)
@@ -360,7 +360,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			return
 		}
 
-		nextEdges := currentNode.Next()
+		nextEdges := currentStep.Next()
 		var newPaths []*executionPath
 		var pathError error
 
@@ -368,32 +368,32 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		if len(nextEdges) > 1 {
 			// Create new paths for all edges
 			for _, edge := range nextEdges {
-				nextNode, ok := graph.Get(edge.To)
+				nextStep, ok := graph.Get(edge.To)
 				if !ok {
-					pathError = fmt.Errorf("next node not found: %s", edge.To)
-					logger.Error("next node not found", "node", edge.To)
+					pathError = fmt.Errorf("next step not found: %s", edge.To)
+					logger.Error("next step not found", "step", edge.To)
 					continue
 				}
 				newPaths = append(newPaths, &executionPath{
 					id:          getNextPathID(),
-					currentNode: nextNode,
+					currentStep: nextStep,
 				})
 			}
 		} else if len(nextEdges) == 1 {
 			// Continue on same path
-			nextNode, ok := graph.Get(nextEdges[0].To)
+			nextStep, ok := graph.Get(nextEdges[0].To)
 			if !ok {
-				pathError = fmt.Errorf("next node not found: %s", nextEdges[0].To)
-				logger.Error("next node not found", "node", nextEdges[0].To)
+				pathError = fmt.Errorf("next step not found: %s", nextEdges[0].To)
+				logger.Error("next step not found", "step", nextEdges[0].To)
 			} else {
 				updates <- pathUpdate{
 					pathID:     path.id,
-					nodeName:   currentNode.Name(),
+					nodeName:   currentStep.Name(),
 					nodeOutput: result.Content,
 					newPaths:   nil,
 					isDone:     false, // Explicitly indicate path continues
 				}
-				path.currentNode = nextNode
+				path.currentStep = nextStep
 				continue
 			}
 		}
@@ -411,7 +411,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		// Send final update for this path
 		updates <- pathUpdate{
 			pathID:     path.id,
-			nodeName:   currentNode.Name(),
+			nodeName:   currentStep.Name(),
 			nodeOutput: result.Content,
 			newPaths:   newPaths,
 			isDone:     true,
@@ -447,7 +447,7 @@ func (e *Execution) addPath(path *executionPath) *PathState {
 	state := &PathState{
 		ID:          path.id,
 		Status:      PathStatusPending,
-		CurrentNode: path.currentNode,
+		CurrentStep: path.currentStep,
 		StartTime:   time.Now(),
 		NodeOutputs: make(map[string]string),
 	}

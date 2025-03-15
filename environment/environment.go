@@ -73,12 +73,14 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		logger:      opts.Logger,
 	}
 
-	// Phase 1: set environment on agents
+	for _, trigger := range env.triggers {
+		trigger.SetEnvironment(env)
+	}
+
 	for _, agent := range env.Agents() {
 		agent.SetEnvironment(env)
 	}
 
-	// Phase 2: start agents
 	for _, agent := range env.Agents() {
 		if runnableAgent, ok := agent.(dive.RunnableAgent); ok {
 			runnableAgent.Start(context.Background())

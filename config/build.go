@@ -1,4 +1,4 @@
-package teamconf
+package config
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/agent"
 	"github.com/getstingrai/dive/document"
+	"github.com/getstingrai/dive/environment"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/providers/groq"
@@ -156,7 +157,11 @@ func buildAgent(
 	return agent, nil
 }
 
-func buildTask(taskDef Task, agents []dive.Agent, variables map[string]interface{}) (*workflow.Task, error) {
+func buildTask(
+	taskDef Task,
+	agents []dive.Agent,
+	variables map[string]interface{},
+) (*workflow.Task, error) {
 	var timeout time.Duration
 	if taskDef.Timeout != "" {
 		var err error
@@ -221,13 +226,12 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		tasksByName[task.Name()] = task
 	}
 
-	nodes := map[string]*workflow.Node{}
+	steps := []*workflow.Step{}
 	for _, step := range workflowDef.Steps {
 		task, ok := tasksByName[step.Task]
 		if !ok {
 			return nil, fmt.Errorf("task %q not found", step.Task)
 		}
-
 		var edges []*workflow.Edge
 		for _, next := range step.Next {
 			var condition workflow.Condition
@@ -263,26 +267,21 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		for k, v := range step.Inputs {
 			inputs[k] = v
 		}
-		fmt.Printf("inputs: %+v\n", inputs)
 
-		nodes[step.Name] = workflow.NewNode(workflow.NodeOptions{
-			Name:    step.Name,
-			Task:    task,
-			Next:    edges,
-			IsStart: len(nodes) == 0, // First step is the start node
-			Inputs:  inputs,
-			Each:    each,
+		step := workflow.NewStep(workflow.StepOptions{
+			Name:   step.Name,
+			Task:   task,
+			Next:   edges,
+			Inputs: inputs,
+			Each:   each,
 		})
+		steps = append(steps, step)
 	}
 
-	graph := workflow.NewGraph(workflow.GraphOptions{
-		Nodes: nodes,
-	})
-
 	// Convert triggers from config to workflow format
-	var triggers []workflow.Trigger
+	var triggers []*workflow.Trigger
 	for _, trigger := range workflowDef.Triggers {
-		triggers = append(triggers, workflow.Trigger{
+		triggers = append(triggers, &workflow.Trigger{
 			Type:   trigger.Type,
 			Config: trigger.Config,
 		})
@@ -291,7 +290,11 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 	return workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name:        workflowDef.Name,
 		Description: workflowDef.Description,
-		Graph:       graph,
+		Steps:       steps,
 		Triggers:    triggers,
 	})
+}
+
+func buildTrigger(triggerDef Trigger) (*environment.Trigger, error) {
+	return environment.NewTrigger(triggerDef.Name), nil
 }
