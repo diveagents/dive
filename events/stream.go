@@ -9,7 +9,7 @@ type ChannelStream struct {
 // NewStream returns a new ChannelStream.
 func NewStream() *ChannelStream {
 	return &ChannelStream{
-		events: make(chan *Event),
+		events: make(chan *Event, 1),
 		done:   make(chan struct{}),
 	}
 }

@@ -75,9 +75,6 @@ type Task interface {
 	// Outputs returns the outputs for the task
 	Outputs() map[string]Output
 
-	// Execute runs the task and returns its result
-	// Execute(ctx context.Context) (*TaskResult, error)
-
 	// Prompt returns the prompt for the task
 	Prompt(opts TaskPromptOptions) string
 }

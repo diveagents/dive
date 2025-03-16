@@ -8,12 +8,15 @@ import (
 	"os"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/agent"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/providers/groq"
 	"github.com/getstingrai/dive/providers/openai"
+	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/tools"
 	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/workflow"
 	"github.com/mendableai/firecrawl-go"
 )
 
@@ -64,28 +67,13 @@ func main() {
 		log.Println("google search enabled")
 	}
 
-	a := dive.NewAgent(dive.AgentOptions{
+	a := agent.NewAgent(agent.AgentOptions{
 		Name:         "Research Assistant",
 		CacheControl: "ephemeral",
 		LLM:          provider,
 		Tools:        theTools,
-		LogLevel:     "info",
-		Hooks: llm.Hooks{
-			llm.BeforeGenerate: func(ctx context.Context, hookCtx *llm.HookContext) {
-				if verbose {
-					fmt.Println("----")
-					fmt.Println("INPUT")
-					fmt.Println(dive.FormatMessages(hookCtx.Messages))
-				}
-			},
-			llm.AfterGenerate: func(ctx context.Context, hookCtx *llm.HookContext) {
-				if verbose {
-					fmt.Println("OUTPUT")
-					fmt.Println(dive.FormatMessages([]*llm.Message{hookCtx.Response.Message()}))
-					fmt.Println("----")
-				}
-			},
-		},
+		LogLevel:     "debug",
+		Logger:       slogger.New(slogger.LevelDebug),
 	})
 
 	if err := a.Start(ctx); err != nil {
@@ -93,23 +81,27 @@ func main() {
 	}
 	defer a.Stop(ctx)
 
-	step := dive.NewStep(dive.StepOptions{
-		Description:    "Research the history of the internet",
-		ExpectedOutput: "A report of the key events and milestones in the history of the internet",
-		OutputFormat:   dive.OutputMarkdown,
+	task := workflow.NewTask(workflow.TaskOptions{
+		Name:        "Research the history of the internet",
+		Description: "Research the history of the internet",
+		Outputs: map[string]dive.Output{
+			"history": {
+				Name:        "history",
+				Description: "The history of the internet",
+				Format:      string(dive.OutputMarkdown),
+			},
+		},
 	})
 
-	stream, err := a.Work(ctx, step)
+	stream, err := a.Work(ctx, task)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	for event := range stream.Channel() {
-		if event.Error != "" {
-			log.Fatal(event.Error)
-		}
-		if event.StepResult != nil {
-			fmt.Println(event.StepResult.Content)
+		switch p := event.Payload.(type) {
+		case *dive.TaskResult:
+			fmt.Println("result:\n", p.Content)
 		}
 	}
 }

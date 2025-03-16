@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/agent"
+	"github.com/getstingrai/dive/environment"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/providers/groq"
@@ -15,6 +17,7 @@ import (
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/tools"
 	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/workflow"
 	"github.com/mendableai/firecrawl-go"
 )
 
@@ -87,7 +90,7 @@ func main() {
 		logger.Warn("no tools enabled")
 	}
 
-	supervisor := dive.NewAgent(dive.AgentOptions{
+	supervisor := agent.NewAgent(agent.AgentOptions{
 		Name:         "Supervisor",
 		Description:  "Research Supervisor and Renowned Author. Assign research tasks to the research assistant, but prepare the final reports or biographies yourself.",
 		IsSupervisor: true,
@@ -96,20 +99,9 @@ func main() {
 		LLM:          provider,
 		LogLevel:     logLevel,
 		Logger:       logger,
-		Hooks: llm.Hooks{
-			llm.AfterGenerate: func(ctx context.Context, hookCtx *llm.HookContext) {
-				if verbose {
-					messages := hookCtx.Messages
-					messages = append(messages, hookCtx.Response.Message())
-					fmt.Println("----")
-					fmt.Println(dive.FormatMessages(messages))
-					fmt.Println("----")
-				}
-			},
-		},
 	})
 
-	researcher := dive.NewAgent(dive.AgentOptions{
+	researcher := agent.NewAgent(agent.AgentOptions{
 		Name:         "Research Assistant",
 		Description:  "You are an expert research assistant. Don't go too deep into the details unless specifically asked.",
 		CacheControl: "ephemeral",
@@ -117,77 +109,45 @@ func main() {
 		Tools:        theTools,
 		LogLevel:     logLevel,
 		Logger:       logger,
-		Hooks: llm.Hooks{
-			llm.AfterGenerate: func(ctx context.Context, hookCtx *llm.HookContext) {
-				if verbose {
-					messages := hookCtx.Messages
-					messages = append(messages, hookCtx.Response.Message())
-					fmt.Println("----")
-					fmt.Println(dive.FormatMessages(messages))
-					fmt.Println("----")
-				}
-			},
-		},
 	})
 
-	team, err := dive.NewTeam(dive.TeamOptions{
-		Name:        "Elite Research Team",
-		Description: "A team of researchers led by a supervisor. The supervisor should delegate work as needed.",
+	w, err := workflow.NewWorkflow(workflow.WorkflowOptions{
+		Name:        "Research Workflow",
+		Description: "A workflow for the research assistant. The supervisor will assign tasks to the research assistant.",
+		Steps: []*workflow.Step{
+			workflow.NewStep(workflow.StepOptions{
+				Name: "Research Step",
+				Task: workflow.NewTask(workflow.TaskOptions{
+					Name:        "Research Task",
+					Description: "Research the history of maple syrup production in Vermont.",
+					Agent:       researcher,
+				}),
+			}),
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	env, err := environment.New(environment.EnvironmentOptions{
+		Name:        "Research Environment",
+		Description: "A research environment for the research assistant. The supervisor will assign tasks to the research assistant.",
 		Agents: []dive.Agent{
 			supervisor,
 			researcher,
 		},
+		Workflows: []*workflow.Workflow{w},
 	})
+
+	execution, err := env.StartWorkflow(ctx, w, map[string]interface{}{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := team.Start(ctx); err != nil {
-		log.Fatal(err)
-	}
-	defer team.Stop(ctx)
-
-	researchStep := dive.NewStep(dive.StepOptions{
-		Name:        "Background Research",
-		Description: "Gather background research that will be used to create a history of maple syrup production in Vermont. Don't consult more than 3 sources. The goal is to produce about 3 paragraphs of research - that is all. Don't overdo it.",
-	})
-
-	writingStep := dive.NewStep(dive.StepOptions{
-		Name:           "Write History",
-		Description:    "Create a brief 3 paragraph history of maple syrup production in Vermont.",
-		ExpectedOutput: "The history, with the first word of each paragraph in ALL UPPERCASE",
-		Dependencies:   []string{researchStep.Name()},
-	})
-
-	stream, err := team.Work(ctx, researchStep, writingStep)
-	if err != nil {
-		log.Fatal(err)
+	result := execution.Wait()
+	if result.Error() != nil {
+		log.Fatal(result.Error())
 	}
 
-	results := []*dive.StepResult{}
-	for event := range stream.Channel() {
-		if event.Error != "" {
-			log.Fatal(event.Error)
-		}
-		if event.StepResult != nil {
-			fmt.Printf("---- step result %s ----\n", event.StepResult.Step.Name())
-			fmt.Println(event.StepResult.Content)
-			fmt.Println()
-			results = append(results, event.StepResult)
-		} else {
-			fmt.Println("event:", event.Type)
-		}
-	}
-
-	if err := os.MkdirAll("output", 0755); err != nil {
-		log.Fatal(err)
-	}
-
-	for _, result := range results {
-		filename := fmt.Sprintf("output/%s.txt", result.Step.Name())
-		if err := os.WriteFile(filename, []byte(result.Content), 0644); err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("wrote %s\n", filename)
-	}
+	fmt.Println(result.Content())
 }
