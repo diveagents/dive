@@ -144,10 +144,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	result := execution.Wait()
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if err := execution.Wait(); err != nil {
+		log.Fatal(err)
 	}
 
-	fmt.Println(result.Content())
+	for stepName, output := range execution.StepOutputs() {
+		fmt.Printf("---- step %s ----\n", stepName)
+		fmt.Println(output)
+		fmt.Println()
+	}
 }

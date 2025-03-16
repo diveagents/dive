@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/agent"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/providers/groq"
@@ -44,9 +44,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	logger := slogger.New(slogger.LevelDebug)
+	logger := slogger.New(slogger.LevelInfo)
 
-	a := dive.NewAgent(dive.AgentOptions{
+	a := agent.NewAgent(agent.AgentOptions{
 		Name: "Dr. Smith",
 		Description: `
 You are a virtual doctor for role-playing purposes only. You can discuss general
@@ -58,13 +58,6 @@ to answer non-medical questions. Use maximum medical jargon.`,
 		CacheControl: "ephemeral",
 		LogLevel:     "info",
 		Logger:       logger,
-		Hooks: llm.Hooks{
-			llm.AfterGenerate: func(ctx context.Context, hookCtx *llm.HookContext) {
-				inputText := dive.FormatMessages(hookCtx.Messages)
-				outputText := dive.FormatMessages([]*llm.Message{hookCtx.Response.Message()})
-				os.WriteFile("output/chat.txt", []byte(inputText+"\n\n"+outputText), 0644)
-			},
-		},
 	})
 
 	if err := a.Start(ctx); err != nil {
@@ -97,16 +90,17 @@ to answer non-medical questions. Use maximum medical jargon.`,
 		toolName := ""
 		toolID := ""
 		for event := range stream.Channel() {
-			if event.LLMEvent != nil {
-				if event.LLMEvent.ContentBlock != nil {
-					cb := event.LLMEvent.ContentBlock
+			switch payload := event.Payload.(type) {
+			case *llm.StreamEvent:
+				if payload.ContentBlock != nil {
+					cb := payload.ContentBlock
 					if cb.Type == "tool_use" {
 						toolName = cb.Name
 						toolID = cb.ID
 					}
 				}
-				if event.LLMEvent.Delta != nil {
-					delta := event.LLMEvent.Delta
+				if payload.Delta != nil {
+					delta := payload.Delta
 					if delta.PartialJSON != "" {
 						if !inToolUse {
 							inToolUse = true

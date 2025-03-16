@@ -93,8 +93,8 @@ func TestNewEnvironment(t *testing.T) {
 	s0 := pathStates[0]
 	require.Equal(t, PathStatusCompleted, s0.Status)
 	require.Equal(t, "Summary", s0.CurrentStep.Name())
-	require.Equal(t, "A summary of that great poem", s0.NodeOutputs["Summary"])
-	require.Equal(t, "A haiku about the fall", s0.NodeOutputs["Write a Poem"])
+	require.Equal(t, "A summary of that great poem", s0.StepOutputs["Summary"])
+	require.Equal(t, "A haiku about the fall", s0.StepOutputs["Write a Poem"])
 }
 
 func TestEnvironmentWithMultipleAgents(t *testing.T) {

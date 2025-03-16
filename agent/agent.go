@@ -317,15 +317,13 @@ func (a *Agent) IsRunning() bool {
 	return a.running
 }
 
-func (a *Agent) Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error) {
+func (a *Agent) Generate(ctx context.Context, message *llm.Message, opts ...dive.GenerateOption) (*llm.Response, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
 
-	var generateOptions generateOptions
-	for _, opt := range opts {
-		opt(&generateOptions)
-	}
+	var generateOptions dive.GenerateOptions
+	generateOptions.Apply(opts)
 
 	resultChan := make(chan *llm.Response, 1)
 	errChan := make(chan error, 1)
@@ -356,12 +354,12 @@ func (a *Agent) Generate(ctx context.Context, message *llm.Message, opts ...Gene
 	}
 }
 
-func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (events.Stream, error) {
+func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...dive.GenerateOption) (events.Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
 
-	var generateOptions generateOptions
+	var generateOptions dive.GenerateOptions
 	generateOptions.Apply(opts)
 
 	stream := events.NewStream()

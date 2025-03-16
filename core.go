@@ -120,6 +120,12 @@ type Agent interface {
 	// Work gives the agent a task to complete
 	Work(ctx context.Context, task Task) (events.Stream, error)
 
+	// Generate gives the agent a message to respond to
+	Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error)
+
+	// Stream gives the agent a message to respond to and returns a stream of events
+	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (events.Stream, error)
+
 	// SetEnvironment sets the environment for the agent
 	SetEnvironment(env Environment)
 }

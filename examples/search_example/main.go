@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/agent"
+	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/tools"
 	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/workflow"
 )
 
 func main() {
@@ -24,44 +28,30 @@ func main() {
 		log.Fatal(err)
 	}
 
-	agent := dive.NewAgent(dive.AgentOptions{
+	researcher := agent.NewAgent(agent.AgentOptions{
 		Name:         "Chris",
 		Description:  "Research Assistant",
 		Instructions: "Use Google to research assigned topics",
 		LLM:          anthropic.New(),
-		IsSupervisor: false,
 		LogLevel:     "debug",
 		Logger:       slogger.New(slogger.LevelDebug),
 		Tools:        []llm.Tool{tools.NewGoogleSearch(googleClient)},
 	})
-	if err := agent.Start(ctx); err != nil {
+	if err := researcher.Start(ctx); err != nil {
 		log.Fatal(err)
 	}
-	defer agent.Stop(ctx)
+	defer researcher.Stop(ctx)
 
-	step := dive.NewStep(dive.StepOptions{
-		Description: "Research the history of computing and summarize in 3 paragraphs",
-	})
-
-	stream, err := agent.Work(ctx, step)
+	stream, err := researcher.Work(ctx, workflow.NewTask(workflow.TaskOptions{
+		Name:        "Research the history of computing",
+		Description: "Briefly research the history of computing and summarize in 3 paragraphs",
+	}))
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	var result *dive.StepResult
-	for event := range stream.Channel() {
-		if event.Error != "" {
-			log.Fatal(event.Error)
-		}
-		if event.StepResult != nil {
-			result = event.StepResult
-			break
-		}
+	result, err := events.WaitForEvent[*dive.TaskResult](ctx, stream)
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	if result != nil {
-		log.Printf("Step result: %s", result.Content)
-	} else {
-		log.Fatal("No result found")
-	}
+	fmt.Println(result.Content)
 }

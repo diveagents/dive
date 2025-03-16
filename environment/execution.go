@@ -30,7 +30,7 @@ type PathState struct {
 	StartTime   time.Time
 	EndTime     time.Time
 	Error       error
-	NodeOutputs map[string]string
+	StepOutputs map[string]string
 }
 
 // Copy returns a shallow copy of the path state.
@@ -42,7 +42,7 @@ func (p *PathState) Copy() *PathState {
 		StartTime:   p.StartTime,
 		EndTime:     p.EndTime,
 		Error:       p.Error,
-		NodeOutputs: p.NodeOutputs,
+		StepOutputs: p.StepOutputs,
 	}
 }
 
@@ -65,8 +65,8 @@ type executionPath struct {
 
 type pathUpdate struct {
 	pathID     string
-	nodeName   string
-	nodeOutput string
+	stepName   string
+	stepOutput string
 	newPaths   []*executionPath
 	err        error
 	isDone     bool // true if this path should be removed from active paths
@@ -250,10 +250,8 @@ func (e *Execution) run(ctx context.Context) error {
 			}
 
 			// Store task output and update path state
-			path := activePaths[update.pathID]
 			e.updatePathState(update.pathID, func(state *PathState) {
-				fmt.Println("updatePathState", update.pathID, path.currentStep.TaskName(), update.nodeOutput)
-				state.NodeOutputs[update.nodeName] = update.nodeOutput
+				state.StepOutputs[update.stepName] = update.stepOutput
 				if update.isDone {
 					state.Status = PathStatusCompleted
 					state.EndTime = time.Now()
@@ -388,8 +386,8 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			} else {
 				updates <- pathUpdate{
 					pathID:     path.id,
-					nodeName:   currentStep.Name(),
-					nodeOutput: result.Content,
+					stepName:   currentStep.Name(),
+					stepOutput: result.Content,
 					newPaths:   nil,
 					isDone:     false, // Explicitly indicate path continues
 				}
@@ -411,8 +409,8 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		// Send final update for this path
 		updates <- pathUpdate{
 			pathID:     path.id,
-			nodeName:   currentStep.Name(),
-			nodeOutput: result.Content,
+			stepName:   currentStep.Name(),
+			stepOutput: result.Content,
 			newPaths:   newPaths,
 			isDone:     true,
 		}
@@ -449,7 +447,7 @@ func (e *Execution) addPath(path *executionPath) *PathState {
 		Status:      PathStatusPending,
 		CurrentStep: path.currentStep,
 		StartTime:   time.Now(),
-		NodeOutputs: make(map[string]string),
+		StepOutputs: make(map[string]string),
 	}
 	e.paths[path.id] = state
 	return state
@@ -515,4 +513,17 @@ func (e *Execution) GetStats() ExecutionStats {
 	}
 
 	return stats
+}
+
+func (e *Execution) StepOutputs() map[string]string {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+
+	outputs := make(map[string]string)
+	for _, pathState := range e.paths {
+		for stepName, output := range pathState.StepOutputs {
+			outputs[stepName] = output
+		}
+	}
+	return outputs
 }
