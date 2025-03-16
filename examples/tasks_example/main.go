@@ -93,12 +93,14 @@ func main() {
 		},
 	})
 
-	stream, err := a.Work(ctx, task)
+	iterator, err := a.Work(ctx, task)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer iterator.Close()
 
-	for event := range stream.Channel() {
+	for iterator.Next() {
+		event := iterator.Event()
 		switch p := event.Payload.(type) {
 		case *dive.TaskResult:
 			fmt.Println("result:\n", p.Content)

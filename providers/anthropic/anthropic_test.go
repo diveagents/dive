@@ -25,19 +25,17 @@ func TestHelloWorld(t *testing.T) {
 func TestHelloWorldStream(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
-	stream, err := provider.Stream(ctx, []*llm.Message{
+	iterator, err := provider.Stream(ctx, []*llm.Message{
 		llm.NewUserMessage("count to 10. respond with the integers only, separated by spaces."),
 	})
 	require.NoError(t, err)
+	defer iterator.Close()
 
-	var events []*llm.StreamEvent
-	for {
-		event, ok := stream.Next(ctx)
-		if !ok {
-			break
-		}
-		events = append(events, event)
+	var events []*llm.Event
+	for iterator.Next() {
+		events = append(events, iterator.Event())
 	}
+	require.NoError(t, iterator.Err())
 
 	var finalResponse *llm.Response
 	var finalText string
@@ -156,18 +154,18 @@ func TestToolCallStream(t *testing.T) {
 		return "4", nil // Mock result
 	})
 
-	stream, err := provider.Stream(ctx, []*llm.Message{
-		llm.NewUserMessage("What is 2+2?"),
-	}, llm.WithTools(calculatorTool))
+	iterator, err := provider.Stream(ctx,
+		[]*llm.Message{
+			llm.NewUserMessage("What is 2+2?"),
+		},
+		llm.WithTools(calculatorTool))
 
 	require.NoError(t, err)
+	defer iterator.Close()
 
 	var finalResponse *llm.Response
-	for {
-		event, ok := stream.Next(ctx)
-		if !ok {
-			break
-		}
+	for iterator.Next() {
+		event := iterator.Event()
 		if event.Response != nil {
 			finalResponse = event.Response
 		}

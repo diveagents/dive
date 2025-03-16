@@ -615,22 +615,14 @@ func (a *Agent) generate(
 		var currentResponse *llm.Response
 
 		if streamingLLM, ok := a.llm.(llm.StreamingLLM); ok {
-			stream, err := streamingLLM.Stream(ctx, updatedMessages, generateOpts...)
+			iterator, err := streamingLLM.Stream(ctx, updatedMessages, generateOpts...)
 			if err != nil {
 				return nil, updatedMessages, err
 			}
-			// Guarantee that Close is called. It's ok if this is redundant with
-			// additional calls to Close below.
-			defer stream.Close()
+			defer iterator.Close()
 
-			for {
-				event, ok := stream.Next(ctx)
-				if !ok {
-					if err := stream.Err(); err != nil {
-						return nil, updatedMessages, err
-					}
-					break
-				}
+			for iterator.Next() {
+				event := iterator.Event()
 				var err error
 				if event.Response != nil {
 					currentResponse = event.Response
@@ -650,7 +642,9 @@ func (a *Agent) generate(
 					return nil, updatedMessages, err
 				}
 			}
-			stream.Close()
+			if err := iterator.Err(); err != nil {
+				return nil, updatedMessages, err
+			}
 		} else {
 			var err error
 			currentResponse, err = a.llm.Generate(ctx, updatedMessages, generateOpts...)
@@ -683,10 +677,13 @@ func (a *Agent) generate(
 			break
 		}
 
+		fmt.Println("tool calls", len(response.ToolCalls()))
+
 		// Execute all requested tool uses and accumulate results
 		shouldReturnResult := false
 		toolResults := make([]*llm.ToolResult, len(response.ToolCalls()))
 		for i, toolCall := range response.ToolCalls() {
+			fmt.Printf("tool call %d: %q %+v\n", i, toolCall.Name, toolCall)
 			tool, ok := a.toolsByName[toolCall.Name]
 			if !ok {
 				return nil, updatedMessages, fmt.Errorf("tool call for unknown tool: %q", toolCall.Name)
@@ -975,7 +972,7 @@ func (a *Agent) doSomeWork() {
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
 		safePublish(&events.Event{
-			Type:   "step.result",
+			Type:   "task.result",
 			Origin: a.eventOrigin(),
 			Payload: &dive.TaskResult{
 				Task:    a.activeTask.Task,
@@ -998,7 +995,7 @@ func (a *Agent) doSomeWork() {
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
 		safePublish(&events.Event{
-			Type:   "step.progress",
+			Type:   "task.progress",
 			Origin: a.eventOrigin(),
 		})
 
@@ -1009,7 +1006,7 @@ func (a *Agent) doSomeWork() {
 			"task", a.activeTask.Task.Name(),
 		)
 		safePublish(&events.Event{
-			Type:   "step.paused",
+			Type:   "task.paused",
 			Origin: a.eventOrigin(),
 		})
 		a.activeTask.Paused = true

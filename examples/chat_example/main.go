@@ -80,18 +80,20 @@ to answer non-medical questions. Use maximum medical jargon.`,
 			continue
 		}
 
-		stream, err := a.Stream(ctx, llm.NewUserMessage(message))
+		iterator, err := a.Stream(ctx, llm.NewUserMessage(message))
 		if err != nil {
 			log.Fatal(err)
 		}
+		defer iterator.Close()
 
 		var inToolUse bool
 		toolUseAccum := ""
 		toolName := ""
 		toolID := ""
-		for event := range stream.Channel() {
+		for iterator.Next() {
+			event := iterator.Event()
 			switch payload := event.Payload.(type) {
-			case *llm.StreamEvent:
+			case *llm.Event:
 				if payload.ContentBlock != nil {
 					cb := payload.ContentBlock
 					if cb.Type == "tool_use" {

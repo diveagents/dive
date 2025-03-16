@@ -146,32 +146,23 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 	}
 
 	// Tell the agent to work on the task
-	stream, err := agent.Work(ctx, task)
+	iterator, err := agent.Work(ctx, task)
 	if err != nil {
 		return fmt.Sprintf("This assignment could not be started: %s", err.Error()), nil
 	}
-	defer stream.Close()
+	defer iterator.Close()
 
-	// Wait for the result or an error
-	done := false
-	for !done {
-		select {
-		case event, ok := <-stream.Channel():
-			if !ok {
-				done = true
-				break
-			}
-			if event.Error != nil {
-				return fmt.Sprintf("I encountered an error: %s", event.Error), nil
-			}
-			switch payload := event.Payload.(type) {
-			case *dive.TaskResult:
-				return payload.Content, nil
-			default:
-			}
-		case <-ctx.Done():
-			return fmt.Sprintf("My work timed out: %s", ctx.Err()), nil
+	for iterator.Next() {
+		event := iterator.Event()
+		switch payload := event.Payload.(type) {
+		case *dive.TaskResult:
+			return payload.Content, nil
+		default:
 		}
+	}
+
+	if err := iterator.Err(); err != nil {
+		return fmt.Sprintf("I encountered an error: %s", err), nil
 	}
 
 	// We shouldn't reach this point. The agent should have returned the result

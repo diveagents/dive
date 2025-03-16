@@ -17,13 +17,13 @@ func TaskNames(tasks []dive.Task) []string {
 }
 
 func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*dive.TaskResult, error) {
-	stream, err := agent.Work(ctx, task)
+	iterator, err := agent.Work(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)
 	}
-	defer stream.Close()
+	defer iterator.Close()
 
-	taskResult, err := events.WaitForEvent[*dive.TaskResult](ctx, stream)
+	taskResult, err := events.WaitForEvent[*dive.TaskResult](ctx, iterator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to wait for task result: %w", err)
 	}

@@ -253,7 +253,7 @@ func addPrefill(blocks []*ContentBlock, prefill, closingTag string) error {
 	return fmt.Errorf("no text content found in message")
 }
 
-func (p *Provider) Stream(ctx context.Context, messages []*llm.Message, opts ...llm.Option) (llm.Stream, error) {
+func (p *Provider) Stream(ctx context.Context, messages []*llm.Message, opts ...llm.Option) (llm.StreamIterator, error) {
 	config := &llm.Config{}
 	for _, opt := range opts {
 		opt(config)
@@ -329,7 +329,7 @@ func (p *Provider) Stream(ctx context.Context, messages []*llm.Message, opts ...
 		return nil, fmt.Errorf("error marshaling request: %w", err)
 	}
 
-	var stream *Stream
+	var stream *StreamIterator
 	err = retry.Do(ctx, func() error {
 		req, err := http.NewRequestWithContext(ctx, "POST", p.endpoint, bytes.NewBuffer(jsonBody))
 		if err != nil {
@@ -358,7 +358,7 @@ func (p *Provider) Stream(ctx context.Context, messages []*llm.Message, opts ...
 			return providers.NewError(resp.StatusCode, string(body))
 		}
 
-		stream = &Stream{
+		stream = &StreamIterator{
 			reader:            bufio.NewReader(resp.Body),
 			body:              resp.Body,
 			contentBlocks:     make(map[int]*ContentBlockAccumulator),
@@ -423,17 +423,22 @@ func convertMessages(messages []*llm.Message) ([]*Message, error) {
 	return result, nil
 }
 
-// Stream implements the llm.Stream interface for Anthropic streaming responses
-type Stream struct {
+// StreamIterator implements the llm.StreamIterator interface for Anthropic streaming responses
+type StreamIterator struct {
 	reader            *bufio.Reader
 	body              io.ReadCloser
 	err               error
+	currentEvent      *llm.Event // Changed to store current event
 	contentBlocks     map[int]*ContentBlockAccumulator
-	currentMessage    *StreamEvent
+	responseID        string
+	responseModel     string
 	usage             Usage
 	prefill           string
 	prefillClosingTag string
 	closeOnce         sync.Once
+	messageStartSent  bool
+	eventQueue        []*llm.Event // Changed to store llm.Event
+	toolCallsSent     bool
 }
 
 type ContentBlockAccumulator struct {
@@ -485,24 +490,46 @@ type Delta struct {
 
 // ---- End example response event stream ----
 
-func (s *Stream) Next(ctx context.Context) (*llm.StreamEvent, bool) {
+// Next advances to the next event in the stream.
+// Returns false when the stream is complete or an error occurs.
+func (s *StreamIterator) Next() bool {
+	// If we have events in the queue, use the first one
+	if len(s.eventQueue) > 0 {
+		s.currentEvent = s.eventQueue[0]
+		s.eventQueue = s.eventQueue[1:]
+		return true
+	}
+
+	// Try to get more events
 	for {
-		event, err := s.next()
+		events, err := s.readNext()
 		if err != nil {
 			if err != io.EOF {
-				// EOF is the expected error when the stream ends
+				// EOF is expected when stream ends
 				s.Close()
 				s.err = err
 			}
-			return nil, false
+			return false
 		}
-		if event != nil {
-			return event, true
+
+		// If we got events, use the first one and queue the rest
+		if len(events) > 0 {
+			s.currentEvent = events[0]
+			if len(events) > 1 {
+				s.eventQueue = append(s.eventQueue, events[1:]...)
+			}
+			return true
 		}
 	}
 }
 
-func (s *Stream) next() (*llm.StreamEvent, error) {
+// Event returns the current event. Should only be called after a successful Next().
+func (s *StreamIterator) Event() *llm.Event {
+	return s.currentEvent
+}
+
+// readNext processes a single line from the stream and returns events if any are ready
+func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 	line, err := s.reader.ReadBytes('\n')
 	if err != nil {
 		return nil, err
@@ -523,8 +550,21 @@ func (s *Stream) next() (*llm.StreamEvent, error) {
 
 	// Check for stream end
 	if bytes.Equal(bytes.TrimSpace(line), []byte("[DONE]")) {
-		s.Close()
-		return nil, nil
+		// If we've already sent tool calls, just send a message stop event
+		if s.toolCallsSent {
+			return []*llm.Event{{Type: llm.EventMessageStop}}, nil
+		}
+		// Otherwise, send the final response if we have tool calls or content blocks
+		if len(s.contentBlocks) > 0 {
+			s.toolCallsSent = true
+			return []*llm.Event{
+				{
+					Type:     llm.EventMessageStop,
+					Response: s.buildFinalResponse(""),
+				},
+			}, nil
+		}
+		return []*llm.Event{{Type: llm.EventMessageStop}}, nil
 	}
 
 	var event StreamEvent
@@ -532,14 +572,21 @@ func (s *Stream) next() (*llm.StreamEvent, error) {
 		return nil, err
 	}
 
+	// Process the event and convert to llm.Event(s)
+	var events []*llm.Event
+
 	switch event.Type {
 	case "message_start":
-		s.currentMessage = &event
-		s.usage = event.Message.Usage
-		return &llm.StreamEvent{
-			Type:  llm.EventMessageStart,
-			Index: event.Index,
-		}, nil
+		if !s.messageStartSent {
+			s.messageStartSent = true
+			s.responseID = event.Message.ID
+			s.responseModel = event.Message.Model
+			s.usage = event.Message.Usage
+			events = append(events, &llm.Event{
+				Type:  llm.EventMessageStart,
+				Index: event.Index,
+			})
+		}
 
 	case "content_block_start":
 		s.contentBlocks[event.Index] = &ContentBlockAccumulator{
@@ -553,7 +600,7 @@ func (s *Stream) next() (*llm.StreamEvent, error) {
 				Name: event.ContentBlock.Name,
 			}
 		}
-		return &llm.StreamEvent{
+		events = append(events, &llm.Event{
 			Type:  llm.EventContentBlockStart,
 			Index: event.Index,
 			ContentBlock: &llm.ContentBlock{
@@ -562,14 +609,45 @@ func (s *Stream) next() (*llm.StreamEvent, error) {
 				Type: event.ContentBlock.Type,
 				Text: event.ContentBlock.Text,
 			},
-		}, nil
+		})
+
+	case "content_block_delta":
+		block := s.contentBlocks[event.Index]
+		if block == nil {
+			block = &ContentBlockAccumulator{Type: event.Delta.Type}
+			s.contentBlocks[event.Index] = block
+		}
+
+		if s.prefill != "" {
+			event.Delta.Text = s.prefill + event.Delta.Text
+			s.prefill = ""
+		}
+		block.Text += event.Delta.Text
+
+		if event.Delta.Type == "input_json_delta" {
+			block.PartialJSON += event.Delta.PartialJSON
+			if block.Type == "tool_use" && block.ToolUse == nil {
+				// We don't have ID and Name yet
+				block.ToolUse = &ToolUse{}
+			}
+		}
+
+		events = append(events, &llm.Event{
+			Type:  llm.EventContentBlockDelta,
+			Index: event.Index,
+			Delta: &llm.Delta{
+				Type:        event.Delta.Type,
+				Text:        event.Delta.Text,
+				PartialJSON: event.Delta.PartialJSON,
+			},
+		})
 
 	case "content_block_stop":
-		block, exists := s.contentBlocks[event.Index]
-		if exists {
+		block := s.contentBlocks[event.Index]
+		if block != nil {
 			block.IsComplete = true
 		}
-		return &llm.StreamEvent{
+		events = append(events, &llm.Event{
 			Type:  llm.EventContentBlockStop,
 			Index: event.Index,
 			ContentBlock: &llm.ContentBlock{
@@ -578,72 +656,35 @@ func (s *Stream) next() (*llm.StreamEvent, error) {
 				Type: event.ContentBlock.Type,
 				Text: event.ContentBlock.Text,
 			},
-		}, nil
-
-	case "content_block_delta":
-		block, exists := s.contentBlocks[event.Index]
-		if !exists {
-			block = &ContentBlockAccumulator{Type: event.Delta.Type}
-			s.contentBlocks[event.Index] = block
-		}
-		// Accumulate block text and any PartialJSON for tool use
-		switch event.Delta.Type {
-		case "text_delta":
-			if s.prefill != "" {
-				// Inject our prefill and then clear it
-				event.Delta.Text = s.prefill + event.Delta.Text
-				s.prefill = ""
-			}
-			block.Text += event.Delta.Text
-		case "input_json_delta":
-			block.PartialJSON += event.Delta.PartialJSON
-			if block.Type == "tool_use" && block.ToolUse == nil {
-				// We don't have ID and Name yet
-				block.ToolUse = &ToolUse{}
-			}
-		}
-		return &llm.StreamEvent{
-			Type:  llm.EventContentBlockDelta,
-			Index: event.Index,
-			Delta: &llm.Delta{
-				Type:        event.Delta.Type,
-				Text:        event.Delta.Text,
-				PartialJSON: event.Delta.PartialJSON,
-			},
-		}, nil
+		})
 
 	case "message_delta":
-		// Combine initial usage with this updated usage
-		usage := s.usage
-		usage.InputTokens += event.Usage.InputTokens
-		usage.OutputTokens += event.Usage.OutputTokens
-		usage.CacheCreationInputTokens += event.Usage.CacheCreationInputTokens
-		usage.CacheReadInputTokens += event.Usage.CacheReadInputTokens
-		response := s.buildFinalResponse(event.Delta.StopReason, usage)
-		return &llm.StreamEvent{
+		s.usage.InputTokens += event.Usage.InputTokens
+		s.usage.OutputTokens += event.Usage.OutputTokens
+		s.usage.CacheCreationInputTokens += event.Usage.CacheCreationInputTokens
+		s.usage.CacheReadInputTokens += event.Usage.CacheReadInputTokens
+		events = append(events, &llm.Event{
 			Type:  llm.EventMessageDelta,
 			Index: event.Index,
 			Delta: &llm.Delta{
-				Type:         event.Delta.Type,
+				Type:         "message_delta",
 				StopReason:   event.Delta.StopReason,
 				StopSequence: event.Delta.StopSequence,
 			},
-			Response: response,
-		}, nil
+			Response: s.buildFinalResponse(event.Delta.StopReason),
+		})
 
 	case "message_stop":
-		return &llm.StreamEvent{
+		events = append(events, &llm.Event{
 			Type:  llm.EventMessageStop,
 			Index: event.Index,
-		}, nil
-
-	case "ping":
-		return &llm.StreamEvent{Type: llm.EventPing}, nil
+		})
 	}
-	return nil, nil
+
+	return events, nil
 }
 
-func (s *Stream) buildFinalResponse(stopReason string, usage Usage) *llm.Response {
+func (s *StreamIterator) buildFinalResponse(stopReason string) *llm.Response {
 	blocks := make([]*ContentBlock, 0, len(s.contentBlocks))
 	for _, block := range s.contentBlocks {
 		contentBlock := &ContentBlock{
@@ -660,27 +701,27 @@ func (s *Stream) buildFinalResponse(stopReason string, usage Usage) *llm.Respons
 	toolCalls, contentBlocks := processContentBlocks(blocks)
 
 	return llm.NewResponse(llm.ResponseOptions{
-		ID:         s.currentMessage.Message.ID,
-		Model:      s.currentMessage.Message.Model,
+		ID:         s.responseID,
+		Model:      s.responseModel,
 		Role:       llm.Assistant,
 		StopReason: stopReason,
 		ToolCalls:  toolCalls,
 		Message:    llm.NewMessage(llm.Assistant, contentBlocks),
 		Usage: llm.Usage{
-			InputTokens:              usage.InputTokens,
-			OutputTokens:             usage.OutputTokens,
-			CacheCreationInputTokens: usage.CacheCreationInputTokens,
-			CacheReadInputTokens:     usage.CacheReadInputTokens,
+			InputTokens:              s.usage.InputTokens,
+			OutputTokens:             s.usage.OutputTokens,
+			CacheCreationInputTokens: s.usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     s.usage.CacheReadInputTokens,
 		},
 	})
 }
 
-func (s *Stream) Close() error {
+func (s *StreamIterator) Close() error {
 	var err error
 	s.closeOnce.Do(func() { err = s.body.Close() })
 	return err
 }
 
-func (s *Stream) Err() error {
+func (s *StreamIterator) Err() error {
 	return s.err
 }
