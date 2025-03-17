@@ -534,17 +534,14 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	// Skip empty lines
 	if len(bytes.TrimSpace(line)) == 0 {
 		return nil, nil
 	}
-
 	// Parse the event type from the SSE format
 	if bytes.HasPrefix(line, []byte("event: ")) {
 		return nil, nil
 	}
-
 	// Remove "data: " prefix if present
 	line = bytes.TrimPrefix(line, []byte("data: "))
 
@@ -572,11 +569,11 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 		return nil, err
 	}
 
-	// Process the event and convert to llm.Event(s)
 	var events []*llm.Event
 
-	switch event.Type {
-	case "message_start":
+	switch llm.EventType(event.Type) {
+
+	case llm.EventMessageStart:
 		if !s.messageStartSent {
 			s.messageStartSent = true
 			s.responseID = event.Message.ID
@@ -588,12 +585,17 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 			})
 		}
 
-	case "content_block_start":
+	case llm.EventMessageStop:
+		events = append(events, &llm.Event{
+			Type:  llm.EventMessageStop,
+			Index: event.Index,
+		})
+
+	case llm.EventContentBlockStart:
 		s.contentBlocks[event.Index] = &ContentBlockAccumulator{
 			Type: event.ContentBlock.Type,
 			Text: event.ContentBlock.Text,
 		}
-		// If this is a tool_use block, extract the tool information
 		if event.ContentBlock.Type == "tool_use" {
 			s.contentBlocks[event.Index].ToolUse = &ToolUse{
 				ID:   event.ContentBlock.ID,
@@ -611,27 +613,23 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 			},
 		})
 
-	case "content_block_delta":
+	case llm.EventContentBlockDelta:
 		block := s.contentBlocks[event.Index]
 		if block == nil {
 			block = &ContentBlockAccumulator{Type: event.Delta.Type}
 			s.contentBlocks[event.Index] = block
 		}
-
 		if s.prefill != "" {
 			event.Delta.Text = s.prefill + event.Delta.Text
 			s.prefill = ""
 		}
 		block.Text += event.Delta.Text
-
 		if event.Delta.Type == "input_json_delta" {
 			block.PartialJSON += event.Delta.PartialJSON
-			if block.Type == "tool_use" && block.ToolUse == nil {
-				// We don't have ID and Name yet
-				block.ToolUse = &ToolUse{}
-			}
 		}
-
+		if block.Type == "tool_use" && block.ToolUse == nil {
+			block.ToolUse = &ToolUse{}
+		}
 		events = append(events, &llm.Event{
 			Type:  llm.EventContentBlockDelta,
 			Index: event.Index,
@@ -642,7 +640,7 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 			},
 		})
 
-	case "content_block_stop":
+	case llm.EventContentBlockStop:
 		block := s.contentBlocks[event.Index]
 		if block != nil {
 			block.IsComplete = true
@@ -658,7 +656,7 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 			},
 		})
 
-	case "message_delta":
+	case llm.EventMessageDelta:
 		s.usage.InputTokens += event.Usage.InputTokens
 		s.usage.OutputTokens += event.Usage.OutputTokens
 		s.usage.CacheCreationInputTokens += event.Usage.CacheCreationInputTokens
@@ -673,14 +671,7 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 			},
 			Response: s.buildFinalResponse(event.Delta.StopReason),
 		})
-
-	case "message_stop":
-		events = append(events, &llm.Event{
-			Type:  llm.EventMessageStop,
-			Index: event.Index,
-		})
 	}
-
 	return events, nil
 }
 
