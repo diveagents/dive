@@ -464,9 +464,7 @@ type StreamIterator struct {
 	prefill           string
 	prefillClosingTag string
 	closeOnce         sync.Once
-	messageStartSent  bool
 	eventQueue        []*llm.Event
-	toolCallsSent     bool
 }
 
 type ToolCallAccumulator struct {
@@ -642,48 +640,6 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 	}
 
 	if choice.FinishReason != "" {
-		// Create a list of blocks that need stop events
-		var blocksToStop []stopBlock
-
-		// Add tool calls that need to be stopped
-		for index, toolCall := range s.toolCalls {
-			if !toolCall.IsComplete {
-				blocksToStop = append(blocksToStop, stopBlock{Index: index, Type: "tool"})
-				toolCall.IsComplete = true
-			}
-		}
-		// Add content blocks that need to be stopped
-		for index, block := range s.contentBlocks {
-			if !block.IsComplete {
-				blocksToStop = append(blocksToStop, stopBlock{Index: index, Type: "content"})
-				block.IsComplete = true
-			}
-		}
-
-		// Add stop events for all blocks that need to be stopped
-		for _, block := range blocksToStop {
-			event := &llm.Event{
-				Type:  llm.EventContentBlockStop,
-				Index: block.Index,
-			}
-			// Add ContentBlock with ID and Name for tool calls
-			if block.Type == "tool" {
-				toolCall := s.toolCalls[block.Index]
-				event.ContentBlock = &llm.ContentBlock{
-					ID:   toolCall.ID,
-					Name: toolCall.Name,
-					Type: "tool_use",
-				}
-			} else if block.Type == "content" {
-				contentBlock := s.contentBlocks[block.Index]
-				event.ContentBlock = &llm.ContentBlock{
-					Type: contentBlock.Type,
-					Text: contentBlock.Text,
-				}
-			}
-			// events = append(events, event)
-		}
-
 		// Add message_delta event with stop reason
 		events = append(events, &llm.Event{
 			Type:     llm.EventMessageDelta,
@@ -693,7 +649,6 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 				StopReason: choice.FinishReason,
 			},
 		})
-		s.toolCallsSent = true
 	}
 
 	return events, nil
