@@ -428,7 +428,7 @@ type StreamIterator struct {
 	reader            *bufio.Reader
 	body              io.ReadCloser
 	err               error
-	currentEvent      *llm.Event // Changed to store current event
+	currentEvent      *llm.Event
 	contentBlocks     map[int]*ContentBlockAccumulator
 	responseID        string
 	responseModel     string
@@ -436,9 +436,7 @@ type StreamIterator struct {
 	prefill           string
 	prefillClosingTag string
 	closeOnce         sync.Once
-	messageStartSent  bool
-	eventQueue        []*llm.Event // Changed to store llm.Event
-	toolCallsSent     bool
+	eventQueue        []*llm.Event
 }
 
 type ContentBlockAccumulator struct {
@@ -446,7 +444,6 @@ type ContentBlockAccumulator struct {
 	Text        string
 	PartialJSON string
 	ToolUse     *ToolUse
-	IsComplete  bool
 }
 
 type ToolUse struct {
@@ -547,21 +544,7 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 
 	// Check for stream end
 	if bytes.Equal(bytes.TrimSpace(line), []byte("[DONE]")) {
-		// If we've already sent tool calls, just send a message stop event
-		if s.toolCallsSent {
-			return []*llm.Event{{Type: llm.EventMessageStop}}, nil
-		}
-		// Otherwise, send the final response if we have tool calls or content blocks
-		if len(s.contentBlocks) > 0 {
-			s.toolCallsSent = true
-			return []*llm.Event{
-				{
-					Type:     llm.EventMessageStop,
-					Response: s.buildFinalResponse(""),
-				},
-			}, nil
-		}
-		return []*llm.Event{{Type: llm.EventMessageStop}}, nil
+		return nil, nil
 	}
 
 	var event StreamEvent
@@ -574,22 +557,12 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 	switch llm.EventType(event.Type) {
 
 	case llm.EventMessageStart:
-		if !s.messageStartSent {
-			s.messageStartSent = true
-			s.responseID = event.Message.ID
-			s.responseModel = event.Message.Model
-			s.usage = event.Message.Usage
-			events = append(events, &llm.Event{
-				Type:  llm.EventMessageStart,
-				Index: event.Index,
-			})
-		}
+		s.responseID = event.Message.ID
+		s.responseModel = event.Message.Model
+		s.usage = event.Message.Usage
 
 	case llm.EventMessageStop:
-		events = append(events, &llm.Event{
-			Type:  llm.EventMessageStop,
-			Index: event.Index,
-		})
+		// noop
 
 	case llm.EventContentBlockStart:
 		s.contentBlocks[event.Index] = &ContentBlockAccumulator{
@@ -602,16 +575,6 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 				Name: event.ContentBlock.Name,
 			}
 		}
-		events = append(events, &llm.Event{
-			Type:  llm.EventContentBlockStart,
-			Index: event.Index,
-			ContentBlock: &llm.ContentBlock{
-				ID:   event.ContentBlock.ID,
-				Name: event.ContentBlock.Name,
-				Type: event.ContentBlock.Type,
-				Text: event.ContentBlock.Text,
-			},
-		})
 
 	case llm.EventContentBlockDelta:
 		block := s.contentBlocks[event.Index]
@@ -641,20 +604,7 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 		})
 
 	case llm.EventContentBlockStop:
-		block := s.contentBlocks[event.Index]
-		if block != nil {
-			block.IsComplete = true
-		}
-		events = append(events, &llm.Event{
-			Type:  llm.EventContentBlockStop,
-			Index: event.Index,
-			ContentBlock: &llm.ContentBlock{
-				ID:   event.ContentBlock.ID,
-				Name: event.ContentBlock.Name,
-				Type: event.ContentBlock.Type,
-				Text: event.ContentBlock.Text,
-			},
-		})
+		// noop
 
 	case llm.EventMessageDelta:
 		s.usage.InputTokens += event.Usage.InputTokens

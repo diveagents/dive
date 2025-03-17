@@ -540,21 +540,7 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 
 	// Check for stream end
 	if bytes.Equal(bytes.TrimSpace(line), []byte("[DONE]")) {
-		// If we've already sent tool calls, just send a message stop event
-		if s.toolCallsSent {
-			return []*llm.Event{{Type: llm.EventMessageStop}}, nil
-		}
-		// Otherwise, send the final response if we have tool calls or content blocks
-		if len(s.contentBlocks) > 0 || len(s.toolCalls) > 0 {
-			s.toolCallsSent = true
-			return []*llm.Event{
-				{
-					Type:     llm.EventMessageStop,
-					Response: s.buildFinalResponse(""),
-				},
-			}, nil
-		}
-		return []*llm.Event{{Type: llm.EventMessageStop}}, nil
+		return nil, nil
 	}
 
 	var event StreamResponse
@@ -576,12 +562,6 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 	choice := event.Choices[0]
 	var events []*llm.Event
 
-	// If this is the first chunk, emit a message_start event
-	if !s.messageStartSent && s.responseID != "" {
-		s.messageStartSent = true
-		events = append(events, &llm.Event{Type: llm.EventMessageStart})
-	}
-
 	if choice.Delta.Reasoning != "" {
 		// TODO: handle accumulated reasoning
 	}
@@ -596,17 +576,9 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 			}
 			s.prefill = ""
 		}
-		// Check if we need to emit a content_block_start event
 		index := choice.Index
 		if _, exists := s.contentBlocks[index]; !exists {
-			s.contentBlocks[index] = &ContentBlockAccumulator{
-				Type: "text",
-				Text: "",
-			}
-			events = append(events, &llm.Event{
-				Type:  llm.EventContentBlockStart,
-				Index: index,
-			})
+			s.contentBlocks[index] = &ContentBlockAccumulator{Type: "text", Text: ""}
 		}
 		// Accumulate the text
 		block := s.contentBlocks[index]
@@ -625,16 +597,7 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 		for _, toolCallDelta := range choice.Delta.ToolCalls {
 			index := toolCallDelta.Index
 			if _, exists := s.toolCalls[index]; !exists {
-				s.toolCalls[index] = &ToolCallAccumulator{
-					Type: "function",
-				}
-				events = append(events, &llm.Event{
-					Type:  llm.EventContentBlockStart,
-					Index: index,
-					ContentBlock: &llm.ContentBlock{
-						Type: "tool_use",
-					},
-				})
+				s.toolCalls[index] = &ToolCallAccumulator{Type: "function"}
 			}
 			toolCall := s.toolCalls[index]
 			if toolCallDelta.ID != "" {
@@ -718,7 +681,7 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 					Text: contentBlock.Text,
 				}
 			}
-			events = append(events, event)
+			// events = append(events, event)
 		}
 
 		// Add message_delta event with stop reason
