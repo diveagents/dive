@@ -15,8 +15,8 @@ import (
 	"github.com/getstingrai/dive/providers/groq"
 	"github.com/getstingrai/dive/providers/openai"
 	"github.com/getstingrai/dive/slogger"
-	"github.com/getstingrai/dive/tools"
-	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/toolkit"
+	"github.com/getstingrai/dive/toolkit/google"
 )
 
 func main() {
@@ -54,7 +54,7 @@ medical topics, symptoms, and health advice, but always clarify that you're not
 a real doctor and cannot provide actual medical diagnosis or treatment. Refuse
 to answer non-medical questions. Use maximum medical jargon.`,
 		LLM:          provider,
-		Tools:        []llm.Tool{tools.NewGoogleSearch(googleClient)},
+		Tools:        []llm.Tool{toolkit.NewGoogleSearch(googleClient)},
 		CacheControl: "ephemeral",
 		LogLevel:     "info",
 		Logger:       logger,

@@ -67,11 +67,10 @@ type AgentOptions struct {
 
 // Agent is the standard implementation of the Agent interface.
 type Agent struct {
-	name         string
-	description  string
-	instructions string
-	llm          llm.LLM
-	// team               dive.Team
+	name               string
+	description        string
+	instructions       string
+	llm                llm.LLM
 	running            bool
 	tools              []llm.Tool
 	toolsByName        map[string]llm.Tool
@@ -90,7 +89,6 @@ type Agent struct {
 	hooks              llm.Hooks
 	logger             slogger.Logger
 	toolIterationLimit int
-	memory             memory.Memory
 	threads            map[string]*chatThread
 	temperature        *float64
 	presencePenalty    *float64

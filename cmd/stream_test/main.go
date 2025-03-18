@@ -10,8 +10,8 @@ import (
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/providers/openai"
-	"github.com/getstingrai/dive/tools"
-	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/toolkit"
+	"github.com/getstingrai/dive/toolkit/google"
 )
 
 var (
@@ -49,7 +49,7 @@ func stream(model llm.StreamingLLM, messages []*llm.Message) {
 		if err != nil {
 			fatal("failed to initialize Google Search: %s", err)
 		}
-		modelTools = append(modelTools, tools.NewGoogleSearch(googleClient))
+		modelTools = append(modelTools, toolkit.NewGoogleSearch(googleClient))
 	}
 
 	stream, err := model.Stream(

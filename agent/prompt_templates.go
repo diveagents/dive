@@ -9,7 +9,6 @@ import (
 var (
 	agentSystemPromptTemplate *template.Template
 	chatSystemPromptTemplate  *template.Template
-	teamPromptTemplate        *template.Template
 	taskStatePromptTemplate   *template.Template
 )
 
@@ -20,10 +19,6 @@ func init() {
 		panic(err)
 	}
 	chatSystemPromptTemplate, err = parseTemplate("chat_sys_prompt", chatSysPromptText)
-	if err != nil {
-		panic(err)
-	}
-	teamPromptTemplate, err = parseTemplate("team_prompt", teamPromptText)
 	if err != nil {
 		panic(err)
 	}
@@ -229,14 +224,14 @@ Context you are given may be helpful to you when answering questions. If the
 context doesn't fully help answer a question, please use the available tools
 to gather more information.`
 
-var teamPromptText = `{{- if .Description -}}
-The team is described as: "{{ .Description }}"
-{{- end }}
+// var teamPromptText = `{{- if .Description -}}
+// The team is described as: "{{ .Description }}"
+// {{- end }}
 
-The team consists of the following agents:
-{{ range $i, $agent := .Agents }}
-- Name: {{ $agent.Name }}, Description: "{{ $agent.Description }}"
-{{- end }}`
+// The team consists of the following agents:
+// {{ range $i, $agent := .Agents }}
+// - Name: {{ $agent.Name }}, Description: "{{ $agent.Description }}"
+// {{- end }}`
 
 var finishStepNowPrompt = "Finish the step to the best of your ability now. Do not use any more tools. Respond with the complete response to the step's prompt."
 

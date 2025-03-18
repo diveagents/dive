@@ -15,8 +15,8 @@ import (
 	"github.com/getstingrai/dive/providers/groq"
 	"github.com/getstingrai/dive/providers/openai"
 	"github.com/getstingrai/dive/slogger"
-	"github.com/getstingrai/dive/tools"
-	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/toolkit"
+	"github.com/getstingrai/dive/toolkit/google"
 	"github.com/getstingrai/dive/workflow"
 	"github.com/mendableai/firecrawl-go"
 )
@@ -66,7 +66,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		scraper := tools.NewFirecrawlScrapeTool(tools.FirecrawlScrapeToolOptions{
+		scraper := toolkit.NewFirecrawlScrapeTool(toolkit.FirecrawlScrapeToolOptions{
 			App: app,
 		})
 		theTools = append(theTools, scraper)
@@ -80,7 +80,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		theTools = append(theTools, tools.NewGoogleSearch(googleClient))
+		theTools = append(theTools, toolkit.NewGoogleSearch(googleClient))
 		logger.Info("google search enabled")
 	} else {
 		logger.Info("google search is not enabled")
@@ -138,6 +138,9 @@ func main() {
 		},
 		Workflows: []*workflow.Workflow{w},
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	execution, err := env.StartWorkflow(ctx, w, map[string]interface{}{})
 	if err != nil {

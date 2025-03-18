@@ -10,8 +10,8 @@ import (
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/slogger"
-	"github.com/getstingrai/dive/tools"
-	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/toolkit"
+	"github.com/getstingrai/dive/toolkit/google"
 	"github.com/getstingrai/dive/workflow"
 )
 
@@ -34,7 +34,7 @@ func main() {
 		LLM:          anthropic.New(),
 		LogLevel:     "debug",
 		Logger:       slogger.New(slogger.LevelDebug),
-		Tools:        []llm.Tool{tools.NewGoogleSearch(googleClient)},
+		Tools:        []llm.Tool{toolkit.NewGoogleSearch(googleClient)},
 	})
 	if err := researcher.Start(ctx); err != nil {
 		log.Fatal(err)

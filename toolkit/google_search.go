@@ -1,4 +1,4 @@
-package tools
+package toolkit
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/getstingrai/dive/llm"
-	"github.com/getstingrai/dive/tools/google"
+	"github.com/getstingrai/dive/toolkit/google"
 )
 
 var _ llm.Tool = &GoogleSearch{}
