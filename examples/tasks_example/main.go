@@ -20,13 +20,10 @@ import (
 	"github.com/mendableai/firecrawl-go"
 )
 
-// groq.WithModel("deepseek-r1-distill-llama-70b")
-
 func main() {
 	var verbose bool
-	var providerName, modelName string
+	var providerName string
 	flag.StringVar(&providerName, "provider", "anthropic", "provider to use")
-	flag.StringVar(&modelName, "model", "", "model to use")
 	flag.BoolVar(&verbose, "verbose", false, "verbose output")
 	flag.Parse()
 
@@ -39,7 +36,7 @@ func main() {
 	case "openai":
 		provider = openai.New()
 	case "groq":
-		provider = groq.New()
+		provider = groq.New(groq.WithModel("deepseek-r1-distill-llama-70b"))
 	}
 
 	var theTools []llm.Tool
@@ -99,7 +96,7 @@ func main() {
 	}
 	defer iterator.Close()
 
-	for iterator.Next() {
+	for iterator.Next(ctx) {
 		event := iterator.Event()
 		switch p := event.Payload.(type) {
 		case *dive.TaskResult:

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/getstingrai/dive"
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/slogger"
@@ -133,7 +132,7 @@ func TestAgentTask(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	event, err := events.WaitForEvent[*dive.TaskResult](ctx, stream)
+	event, err := dive.WaitForEvent[*dive.TaskResult](ctx, stream)
 	require.NoError(t, err)
 
 	content := strings.ToLower(event.Content)

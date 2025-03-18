@@ -90,7 +90,8 @@ to answer non-medical questions. Use maximum medical jargon.`,
 		toolUseAccum := ""
 		toolName := ""
 		toolID := ""
-		for iterator.Next() {
+
+		for iterator.Next(ctx) {
 			event := iterator.Event()
 			switch payload := event.Payload.(type) {
 			case *llm.Event:

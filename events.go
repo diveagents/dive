@@ -1,12 +1,12 @@
-package events
+package dive
 
 import (
 	"context"
 	"fmt"
 )
 
-// Origin carries information about what produced the event
-type Origin struct {
+// EventOrigin carries information about what produced the event
+type EventOrigin struct {
 	AgentID         string `json:"agent_id,omitempty"`
 	AgentName       string `json:"agent_name,omitempty"`
 	TaskID          string `json:"task_id,omitempty"`
@@ -23,7 +23,7 @@ type Event struct {
 	Type string
 
 	// Origin is the origin of the event
-	Origin Origin
+	Origin EventOrigin
 
 	// Payload carries additional data for the event
 	Payload any
@@ -32,20 +32,12 @@ type Event struct {
 	Error error
 }
 
-// TaskResult holds the output of a completed task
-// type TaskResult struct {
-// 	Task    interface{}
-// 	Content string
-// 	Object  interface{}
-// 	Usage   interface{}
-// }
-
 // Stream is an interface for iterating over a sequence of events
 type Stream interface {
 	// Next advances the stream to the next event. It returns false when the stream
 	// is complete or if an error occurs. The caller should check Err() after Next
 	// returns false to distinguish between normal completion and errors.
-	Next() bool
+	Next(ctx context.Context) bool
 
 	// Event returns the current event in the stream. It should only be called
 	// after a successful call to Next.
@@ -81,7 +73,7 @@ type Handler interface {
 // It will return an error if the context is canceled or if an error event is received.
 func WaitForEvent[T any](ctx context.Context, stream Stream) (T, error) {
 	var result T
-	for stream.Next() {
+	for stream.Next(ctx) {
 		event := stream.Event()
 		if event == nil {
 			return result, fmt.Errorf("received nil event from stream")
@@ -104,7 +96,7 @@ func WaitForEvent[T any](ctx context.Context, stream Stream) (T, error) {
 	}
 }
 
-// streamImpl is the concrete implementation of the Stream interface
+// streamImpl implements the Stream interface
 type streamImpl struct {
 	ch     chan *Event
 	curr   *Event
@@ -115,34 +107,40 @@ type streamImpl struct {
 
 // NewStream creates a new event stream
 func NewStream() Stream {
-	ch := make(chan *Event, 16) // buffered channel to prevent blocking
-	s := &streamImpl{
-		ch: ch,
-	}
-	s.pub = newPublisher(ch)
+	ch := make(chan *Event, 16)
+	s := &streamImpl{ch: ch}
+	s.pub = newPublisher(s)
 	return s
 }
 
-func (s *streamImpl) Next() bool {
+func (s *streamImpl) Next(ctx context.Context) bool {
 	if s.closed {
 		return false
 	}
 
 	// Try to receive the next event
-	event, ok := <-s.ch
-	if !ok {
+	var ok bool
+	var event *Event
+	select {
+	case <-ctx.Done():
 		s.closed = true
+		s.err = ctx.Err()
 		return false
+	case event, ok = <-s.ch:
+		if !ok {
+			s.closed = true
+			return false
+		}
 	}
 
 	s.curr = event
+
 	// Check if this is an error event
 	if event != nil && event.Error != nil {
 		s.err = event.Error
 		s.closed = true
 		return false
 	}
-
 	return true
 }
 
@@ -159,9 +157,6 @@ func (s *streamImpl) Close() error {
 		return nil
 	}
 	s.closed = true
-	if s.pub != nil {
-		s.pub.Close()
-	}
 	close(s.ch)
 	return nil
 }
@@ -172,13 +167,13 @@ func (s *streamImpl) Publisher() Publisher {
 
 // publisherImpl is the concrete implementation of the Publisher interface
 type publisherImpl struct {
-	ch     chan *Event
+	stream *streamImpl
 	closed bool
 }
 
-func newPublisher(ch chan *Event) Publisher {
+func newPublisher(stream *streamImpl) Publisher {
 	return &publisherImpl{
-		ch: ch,
+		stream: stream,
 	}
 }
 
@@ -188,7 +183,7 @@ func (p *publisherImpl) Send(ctx context.Context, event *Event) error {
 	}
 
 	select {
-	case p.ch <- event:
+	case p.stream.ch <- event:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -196,5 +191,9 @@ func (p *publisherImpl) Send(ctx context.Context, event *Event) error {
 }
 
 func (p *publisherImpl) Close() {
+	if p.closed {
+		return
+	}
 	p.closed = true
+	p.stream.Close()
 }

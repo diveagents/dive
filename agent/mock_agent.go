@@ -4,13 +4,12 @@ import (
 	"context"
 
 	"github.com/getstingrai/dive"
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 )
 
-type WorkFunc func(ctx context.Context, task dive.Task) (events.Stream, error)
+type WorkFunc func(ctx context.Context, task dive.Task) (dive.Stream, error)
 
-type HandleEventFunc func(ctx context.Context, event *events.Event) error
+type HandleEventFunc func(ctx context.Context, event *dive.Event) error
 
 type MockAgentOptions struct {
 	Name           string
@@ -67,7 +66,7 @@ func (a *MockAgent) AcceptedEvents() []string {
 	return a.acceptedEvents
 }
 
-func (a *MockAgent) HandleEvent(ctx context.Context, event *events.Event) error {
+func (a *MockAgent) HandleEvent(ctx context.Context, event *dive.Event) error {
 	return a.handleEvent(ctx, event)
 }
 
@@ -83,7 +82,7 @@ func (a *MockAgent) SetEnvironment(env dive.Environment) {
 	a.environment = env
 }
 
-func (a *MockAgent) Work(ctx context.Context, task dive.Task) (events.Stream, error) {
+func (a *MockAgent) Work(ctx context.Context, task dive.Task) (dive.Stream, error) {
 	return a.work(ctx, task)
 }
 
@@ -91,7 +90,7 @@ func (a *MockAgent) Generate(ctx context.Context, message *llm.Message, opts ...
 	return a.response, nil
 }
 
-func (a *MockAgent) Stream(ctx context.Context, message *llm.Message, opts ...dive.GenerateOption) (events.Stream, error) {
+func (a *MockAgent) Stream(ctx context.Context, message *llm.Message, opts ...dive.GenerateOption) (dive.Stream, error) {
 	return nil, nil
 }
 

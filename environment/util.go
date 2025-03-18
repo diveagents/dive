@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/getstingrai/dive"
-	"github.com/getstingrai/dive/events"
 )
 
 func TaskNames(tasks []dive.Task) []string {
@@ -23,7 +22,7 @@ func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*dive.T
 	}
 	defer iterator.Close()
 
-	taskResult, err := events.WaitForEvent[*dive.TaskResult](ctx, iterator)
+	taskResult, err := dive.WaitForEvent[*dive.TaskResult](ctx, iterator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to wait for task result: %w", err)
 	}

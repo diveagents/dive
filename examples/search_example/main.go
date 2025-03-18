@@ -7,7 +7,6 @@ import (
 
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/agent"
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
 	"github.com/getstingrai/dive/slogger"
@@ -49,7 +48,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	result, err := events.WaitForEvent[*dive.TaskResult](ctx, stream)
+
+	result, err := dive.WaitForEvent[*dive.TaskResult](ctx, stream)
 	if err != nil {
 		log.Fatal(err)
 	}

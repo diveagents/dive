@@ -4,14 +4,13 @@ import (
 	"context"
 
 	"github.com/getstingrai/dive"
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 )
 
 // messageWork represents a task assignment message sent to an agent
 type messageWork struct {
 	task      dive.Task
-	publisher events.Publisher
+	publisher dive.Publisher
 }
 
 // messageChat represents a direct chat message sent to an agent
@@ -26,7 +25,7 @@ type messageChat struct {
 	errChan    chan error
 
 	// For streaming responses:
-	stream events.Stream
+	stream dive.Stream
 }
 
 // messageStop represents a request to stop the agent

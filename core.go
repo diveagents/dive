@@ -3,7 +3,6 @@ package dive
 import (
 	"context"
 
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/slogger"
 )
@@ -118,13 +117,13 @@ type Agent interface {
 	Subordinates() []string
 
 	// Work gives the agent a task to complete
-	Work(ctx context.Context, task Task) (events.Stream, error)
+	Work(ctx context.Context, task Task) (Stream, error)
 
 	// Generate gives the agent a message to respond to
 	Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error)
 
 	// Stream gives the agent a message to respond to and returns a stream of events
-	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (events.Stream, error)
+	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (Stream, error)
 
 	// SetEnvironment sets the environment for the agent
 	SetEnvironment(env Environment)
@@ -152,7 +151,7 @@ type EventHandlerAgent interface {
 	AcceptedEvents() []string
 
 	// HandleEvent passes an event to the event handler
-	HandleEvent(ctx context.Context, event *events.Event) error
+	HandleEvent(ctx context.Context, event *Event) error
 }
 
 type Environment interface {

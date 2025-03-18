@@ -4,13 +4,12 @@ import (
 	"time"
 
 	"github.com/getstingrai/dive"
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 )
 
 type taskState struct {
 	Task               dive.Task
-	Publisher          events.Publisher
+	Publisher          dive.Publisher
 	Status             dive.TaskStatus
 	Iterations         int
 	Started            time.Time

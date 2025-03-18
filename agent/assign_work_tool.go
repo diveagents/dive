@@ -152,7 +152,7 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 	}
 	defer iterator.Close()
 
-	for iterator.Next() {
+	for iterator.Next(ctx) {
 		event := iterator.Event()
 		switch payload := event.Payload.(type) {
 		case *dive.TaskResult:

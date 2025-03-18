@@ -6,7 +6,6 @@ import (
 
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/agent"
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
 	"github.com/stretchr/testify/require"
@@ -19,9 +18,9 @@ func TestNewEnvironment(t *testing.T) {
 
 	a := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "Poet Laureate",
-		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
+		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
 			tasks = append(tasks, task)
-			stream := events.NewStream()
+			stream := dive.NewStream()
 			publisher := stream.Publisher()
 			defer publisher.Close()
 			var content string
@@ -32,7 +31,7 @@ func TestNewEnvironment(t *testing.T) {
 			} else {
 				t.Fatalf("unexpected task: %s", task.Name())
 			}
-			publisher.Send(ctx, &events.Event{
+			publisher.Send(ctx, &dive.Event{
 				Type:    "task.result",
 				Payload: &dive.TaskResult{Content: content},
 			})
@@ -102,12 +101,12 @@ func TestEnvironmentWithMultipleAgents(t *testing.T) {
 
 	agent1 := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "Writer",
-		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
-			stream := events.NewStream()
+		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()
 				defer publisher.Close()
-				publisher.Send(ctx, &events.Event{
+				publisher.Send(ctx, &dive.Event{
 					Type:    "task.result",
 					Payload: &dive.TaskResult{Content: "Written content"},
 				})
@@ -118,12 +117,12 @@ func TestEnvironmentWithMultipleAgents(t *testing.T) {
 
 	agent2 := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "Editor",
-		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
-			stream := events.NewStream()
+		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()
 				defer publisher.Close()
-				publisher.Send(ctx, &events.Event{
+				publisher.Send(ctx, &dive.Event{
 					Type:    "task.result",
 					Payload: &dive.TaskResult{Content: "Edited content"},
 				})
@@ -190,12 +189,12 @@ func TestExecutionStats(t *testing.T) {
 
 	mockAgent := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "StatsAgent",
-		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
-			stream := events.NewStream()
+		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()
 				defer publisher.Close()
-				publisher.Send(ctx, &events.Event{
+				publisher.Send(ctx, &dive.Event{
 					Type:    "task.result",
 					Payload: &dive.TaskResult{Content: "Task completed"},
 				})
@@ -251,8 +250,8 @@ func TestExecutionCancellation(t *testing.T) {
 
 	mockAgent := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "SlowAgent",
-		Work: func(ctx context.Context, task dive.Task) (events.Stream, error) {
-			stream := events.NewStream()
+		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()
 				defer publisher.Close()
@@ -263,7 +262,7 @@ func TestExecutionCancellation(t *testing.T) {
 					return
 				case <-taskControl:
 					// Task was allowed to complete
-					publisher.Send(ctx, &events.Event{
+					publisher.Send(ctx, &dive.Event{
 						Type:    "task.result",
 						Payload: &dive.TaskResult{Content: "Completed"},
 					})

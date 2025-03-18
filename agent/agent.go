@@ -12,7 +12,6 @@ import (
 
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/document"
-	"github.com/getstingrai/dive/events"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/memory"
 	"github.com/getstingrai/dive/slogger"
@@ -354,7 +353,7 @@ func (a *Agent) Generate(ctx context.Context, message *llm.Message, opts ...dive
 	}
 }
 
-func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...dive.GenerateOption) (events.Stream, error) {
+func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...dive.GenerateOption) (dive.Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
@@ -362,7 +361,7 @@ func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...dive.G
 	var generateOptions dive.GenerateOptions
 	generateOptions.Apply(opts)
 
-	stream := events.NewStream()
+	stream := dive.NewStream()
 
 	chatMessage := messageChat{
 		message: message,
@@ -382,7 +381,7 @@ func (a *Agent) Stream(ctx context.Context, message *llm.Message, opts ...dive.G
 	return stream, nil
 }
 
-func (a *Agent) HandleEvent(ctx context.Context, event *events.Event) error {
+func (a *Agent) HandleEvent(ctx context.Context, event *dive.Event) error {
 	if !a.IsRunning() {
 		return fmt.Errorf("agent is not running")
 	}
@@ -395,13 +394,13 @@ func (a *Agent) HandleEvent(ctx context.Context, event *events.Event) error {
 	}
 }
 
-func (a *Agent) Work(ctx context.Context, task dive.Task) (events.Stream, error) {
+func (a *Agent) Work(ctx context.Context, task dive.Task) (dive.Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
 
 	// Stream to be returned to the caller so it can wait for results
-	stream := events.NewStream()
+	stream := dive.NewStream()
 
 	message := messageWork{
 		task:      task,
@@ -436,7 +435,7 @@ func (a *Agent) run() error {
 			case messageChat:
 				a.handleChat(msg)
 
-			case *events.Event:
+			case *dive.Event:
 				a.handleEvent(msg)
 
 			case messageStop:
@@ -457,7 +456,7 @@ func (a *Agent) handleWork(m messageWork) {
 	})
 }
 
-func (a *Agent) handleEvent(event *events.Event) {
+func (a *Agent) handleEvent(event *dive.Event) {
 	a.logger.Info("event received",
 		"agent", a.name,
 		"event_type", event.Type)
@@ -476,7 +475,7 @@ func (a *Agent) handleChat(m messageChat) {
 	}
 
 	var isStreaming bool
-	var publisher events.Publisher
+	var publisher dive.Publisher
 	if m.stream != nil {
 		isStreaming = true
 		publisher = m.stream.Publisher()
@@ -561,7 +560,7 @@ func (a *Agent) generate(
 	messages []*llm.Message,
 	systemPrompt string,
 	stepName string,
-	publisher events.Publisher,
+	publisher dive.Publisher,
 ) (*llm.Response, []*llm.Message, error) {
 
 	// Holds the most recent response from the LLM
@@ -570,7 +569,7 @@ func (a *Agent) generate(
 	copy(updatedMessages, messages)
 
 	// Helper function to safely send events to the publisher
-	safePublish := func(event *events.Event) error {
+	safePublish := func(event *dive.Event) error {
 		if publisher == nil {
 			return nil
 		}
@@ -626,13 +625,13 @@ func (a *Agent) generate(
 				var err error
 				if event.Response != nil {
 					currentResponse = event.Response
-					err = safePublish(&events.Event{
+					err = safePublish(&dive.Event{
 						Type:    "llm.response",
 						Origin:  a.eventOrigin(),
 						Payload: currentResponse,
 					})
 				} else {
-					err = safePublish(&events.Event{
+					err = safePublish(&dive.Event{
 						Type:    "llm.event",
 						Origin:  a.eventOrigin(),
 						Payload: event,
@@ -879,7 +878,7 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 	return nil
 }
 
-func (a *Agent) eventOrigin() events.Origin {
+func (a *Agent) eventOrigin() dive.EventOrigin {
 	var taskName string
 	if a.activeTask != nil {
 		taskName = a.activeTask.Task.Name()
@@ -888,7 +887,7 @@ func (a *Agent) eventOrigin() events.Origin {
 	if a.environment != nil {
 		environmentName = a.environment.Name()
 	}
-	return events.Origin{
+	return dive.EventOrigin{
 		AgentName:       a.name,
 		TaskName:        taskName,
 		EnvironmentName: environmentName,
@@ -898,7 +897,7 @@ func (a *Agent) eventOrigin() events.Origin {
 func (a *Agent) doSomeWork() {
 
 	// Helper function to safely send events to the active task's publisher
-	safePublish := func(event *events.Event) error {
+	safePublish := func(event *dive.Event) error {
 		if a.activeTask.Publisher == nil {
 			return nil
 		}
@@ -916,7 +915,7 @@ func (a *Agent) doSomeWork() {
 		} else {
 			a.activeTask.Paused = false
 		}
-		safePublish(&events.Event{
+		safePublish(&dive.Event{
 			Type:   "task.activated",
 			Origin: a.eventOrigin(),
 		})
@@ -942,7 +941,7 @@ func (a *Agent) doSomeWork() {
 	if err != nil {
 		a.activeTask.Status = dive.TaskStatusError
 		a.rememberTask(a.activeTask)
-		safePublish(&events.Event{
+		safePublish(&dive.Event{
 			Type:   "task.error",
 			Origin: a.eventOrigin(),
 			Error:  err,
@@ -971,7 +970,7 @@ func (a *Agent) doSomeWork() {
 			"task", a.activeTask.Task.Name(),
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		safePublish(&events.Event{
+		safePublish(&dive.Event{
 			Type:   "task.result",
 			Origin: a.eventOrigin(),
 			Payload: &dive.TaskResult{
@@ -994,7 +993,7 @@ func (a *Agent) doSomeWork() {
 			"status_description", a.activeTask.StatusDescription,
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		safePublish(&events.Event{
+		safePublish(&dive.Event{
 			Type:   "task.progress",
 			Origin: a.eventOrigin(),
 		})
@@ -1005,7 +1004,7 @@ func (a *Agent) doSomeWork() {
 			"agent", a.name,
 			"task", a.activeTask.Task.Name(),
 		)
-		safePublish(&events.Event{
+		safePublish(&dive.Event{
 			Type:   "task.paused",
 			Origin: a.eventOrigin(),
 		})
@@ -1021,7 +1020,7 @@ func (a *Agent) doSomeWork() {
 			"status_description", a.activeTask.StatusDescription,
 			"duration", time.Since(a.activeTask.Started).Seconds(),
 		)
-		safePublish(&events.Event{
+		safePublish(&dive.Event{
 			Type:   "task.error",
 			Origin: a.eventOrigin(),
 			Error:  fmt.Errorf("task status: %s", a.activeTask.Status),
