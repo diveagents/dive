@@ -28,11 +28,18 @@ agents:
 tasks:
   list-files:
     description: 'List all files in the directory: ${inputs.directory}'
-    assigned_agent: engineer
+    agent: engineer
     inputs:
       directory:
         type: string
         description: 'The directory to list files in'
+  search:
+    description: 'Search the web for ${inputs.query}'
+    agent: engineer
+    inputs:
+      query:
+        type: string
+        description: 'The query to search the web for'
 
 workflows:
   list-files:
@@ -43,7 +50,15 @@ workflows:
         description: 'The directory to list files in'
         default: '.'
     steps:
-      - name: 'List Files'
+      - name: 'List Files Here'
         task: list-files
         with:
-          directory: $(".")
+          directory: '.'
+      - name: 'List Files in Home'
+        task: list-files
+        with:
+          directory: '~'
+      - name: 'Search Web'
+        task: search
+        with:
+          query: 'What is the capital of France?'

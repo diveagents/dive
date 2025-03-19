@@ -215,28 +215,38 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 	}
 
 	steps := []*workflow.Step{}
-	for _, step := range workflowDef.Steps {
+	for i, step := range workflowDef.Steps {
 		task, ok := tasksByName[step.Task]
 		if !ok {
 			return nil, fmt.Errorf("task %q not found", step.Task)
 		}
 		var edges []*workflow.Edge
-		for _, next := range step.Next {
-			var condition workflow.Condition
-			if next.Condition != "" {
-				var err error
-				condition, err = workflow.NewEvalCondition(next.Condition, map[string]any{
-					"node": nil,
-					"task": nil,
-				})
-				if err != nil {
-					return nil, fmt.Errorf("failed to create condition: %w", err)
-				}
-			}
+
+		// If step.Next is nil and this isn't the last step, implicitly connect to next step
+		if step.Next == nil && i < len(workflowDef.Steps)-1 {
 			edges = append(edges, &workflow.Edge{
-				To:        next.Node,
-				Condition: condition,
+				To:        workflowDef.Steps[i+1].Name,
+				Condition: nil,
 			})
+		} else {
+			// Handle explicit next connections if they exist
+			for _, next := range step.Next {
+				var condition workflow.Condition
+				if next.Condition != "" {
+					var err error
+					condition, err = workflow.NewEvalCondition(next.Condition, map[string]any{
+						"node": nil,
+						"task": nil,
+					})
+					if err != nil {
+						return nil, fmt.Errorf("failed to create condition: %w", err)
+					}
+				}
+				edges = append(edges, &workflow.Edge{
+					To:        next.Node,
+					Condition: condition,
+				})
+			}
 		}
 
 		// Handle "each" block if one is present
