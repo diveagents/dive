@@ -9,6 +9,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/getstingrai/dive/config"
+	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
 )
 
@@ -51,7 +52,7 @@ func main() {
 
 	ctx := context.Background()
 
-	env, err := config.LoadDirectory(filePath)
+	env, err := config.LoadDirectory(filePath, config.WithLogger(slogger.New(slogger.LevelDebug)))
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -64,9 +65,6 @@ func main() {
 		}
 	} else {
 		workflows := env.Workflows()
-		for _, w := range workflows {
-			fmt.Println("WORKFLOW", w.Name())
-		}
 		if len(workflows) != 1 {
 			fatal("You must specify a workflow name")
 		}
@@ -87,5 +85,4 @@ func main() {
 			fatal("Error: failed to create output directory: %s", err)
 		}
 	}
-
 }

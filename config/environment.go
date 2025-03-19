@@ -16,17 +16,17 @@ import (
 
 // Environment is a serializable representation of an AI agent environment
 type Environment struct {
-	Name        string        `yaml:"name,omitempty" json:"name,omitempty"`
-	Description string        `yaml:"description,omitempty" json:"description,omitempty"`
-	Config      Config        `yaml:"config,omitempty" json:"config,omitempty"`
-	Variables   []Variable    `yaml:"variables,omitempty" json:"variables,omitempty"`
-	Tools       []Tool        `yaml:"tools,omitempty" json:"tools,omitempty"`
-	Documents   []Document    `yaml:"documents,omitempty" json:"documents,omitempty"`
-	Agents      []AgentConfig `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Tasks       []Task        `yaml:"tasks,omitempty" json:"tasks,omitempty"`
-	Workflows   []Workflow    `yaml:"workflows,omitempty" json:"workflows,omitempty"`
-	Triggers    []Trigger     `yaml:"triggers,omitempty" json:"triggers,omitempty"`
-	Schedules   []Schedule    `yaml:"schedules,omitempty" json:"schedules,omitempty"`
+	Name        string                 `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
+	Config      Config                 `yaml:"config,omitempty" json:"config,omitempty"`
+	Variables   map[string]Variable    `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Tools       map[string]Tool        `yaml:"tools,omitempty" json:"tools,omitempty"`
+	Documents   map[string]Document    `yaml:"documents,omitempty" json:"documents,omitempty"`
+	Agents      map[string]AgentConfig `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Tasks       map[string]Task        `yaml:"tasks,omitempty" json:"tasks,omitempty"`
+	Workflows   map[string]Workflow    `yaml:"workflows,omitempty" json:"workflows,omitempty"`
+	Triggers    map[string]Trigger     `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	Schedules   map[string]Schedule    `yaml:"schedules,omitempty" json:"schedules,omitempty"`
 }
 
 // Save writes an Environment configuration to a file. The file extension is used to
@@ -80,8 +80,12 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 	var toolConfigs map[string]map[string]interface{}
 	if env.Tools != nil {
 		toolConfigs = make(map[string]map[string]interface{}, len(env.Tools))
-		for _, tool := range env.Tools {
-			toolConfigs[tool.Name] = map[string]interface{}{
+		for name, tool := range env.Tools {
+			toolName := name
+			if tool.Name != "" {
+				toolName = tool.Name
+			}
+			toolConfigs[toolName] = map[string]interface{}{
 				"enabled": tool.Enabled,
 			}
 		}
@@ -93,7 +97,10 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 
 	// Agents
 	agents := make([]dive.Agent, 0, len(env.Agents))
-	for _, agentDef := range env.Agents {
+	for name, agentDef := range env.Agents {
+		if agentDef.Name == "" {
+			agentDef.Name = name
+		}
 		agent, err := buildAgent(agentDef, env.Config, toolsMap, buildOpts.Logger, buildOpts.Variables)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build agent %s: %w", agentDef.Name, err)
@@ -103,7 +110,10 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 
 	// Tasks
 	var tasks []*workflow.Task
-	for _, taskDef := range env.Tasks {
+	for name, taskDef := range env.Tasks {
+		if taskDef.Name == "" {
+			taskDef.Name = name
+		}
 		task, err := buildTask(taskDef, agents, buildOpts.Variables)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build task %s: %w", taskDef.Name, err)
@@ -113,7 +123,10 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 
 	// Workflows
 	var workflows []*workflow.Workflow
-	for _, workflowDef := range env.Workflows {
+	for name, workflowDef := range env.Workflows {
+		if workflowDef.Name == "" {
+			workflowDef.Name = name
+		}
 		workflow, err := buildWorkflow(workflowDef, tasks)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build workflow %s: %w", workflowDef.Name, err)
@@ -123,7 +136,10 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 
 	// Triggers
 	var triggers []*environment.Trigger
-	for _, triggerDef := range env.Triggers {
+	for name, triggerDef := range env.Triggers {
+		if triggerDef.Name == "" {
+			triggerDef.Name = name
+		}
 		trigger, err := buildTrigger(triggerDef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build trigger %s: %w", triggerDef.Name, err)

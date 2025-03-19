@@ -1,0 +1,53 @@
+name: 'File Explorer'
+description: 'List files in a directory'
+
+variables:
+  provider:
+    type: string
+    description: 'The default provider to use for the team'
+    default: 'anthropic'
+  model:
+    type: string
+    description: 'The default model to use for the team'
+    default: 'claude-3-7-sonnet-20250219'
+  log_level:
+    type: string
+    description: 'The log level to use for the team'
+    default: 'info'
+  directory:
+    type: string
+    description: 'The directory to list files in'
+    default: '.'
+
+tools:
+  google_search:
+    enabled: true
+  firecrawl_scrape:
+    enabled: true
+  directory_list:
+    enabled: true
+  file_read:
+    enabled: true
+
+agents:
+  engineer:
+    description: 'Principal Software Engineer'
+    tools:
+      - google_search
+      - firecrawl_scrape
+      - directory_list
+      - file_read
+
+tasks:
+  list-files:
+    description: 'List all files in the directory: ${var.directory}'
+    assigned_agent: ${agents.engineer}
+
+workflows:
+  list-files:
+    description: 'List all files in a directory'
+    steps:
+      - name: 'List Files'
+        task: list-files
+        inputs:
+          directory: ${var.directory}

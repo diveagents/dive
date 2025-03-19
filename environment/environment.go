@@ -62,6 +62,8 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		executions[execution.ID()] = execution
 	}
 
+	fmt.Println("LOGGER:", opts.Logger)
+
 	env := &Environment{
 		id:          opts.ID,
 		name:        opts.Name,

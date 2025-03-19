@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/agent"
 	"github.com/getstingrai/dive/workflow"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,18 +19,18 @@ func TestEnvironment_Build(t *testing.T) {
 			DefaultModel:    "claude-3-sonnet-20240229",
 			LogLevel:        "info",
 		},
-		Tools: []Tool{
-			{
+		Tools: map[string]Tool{
+			"google_search": {
 				Name:    "google_search",
 				Enabled: true,
 			},
-			{
+			"file_read": {
 				Name:    "file_read",
 				Enabled: true,
 			},
 		},
-		Agents: []AgentConfig{
-			{
+		Agents: map[string]AgentConfig{
+			"researcher": {
 				Name:         "researcher",
 				Description:  "Research agent",
 				Provider:     "anthropic",
@@ -37,7 +38,7 @@ func TestEnvironment_Build(t *testing.T) {
 				Tools:        []string{"google_search", "file_read"},
 				Instructions: "You are a research agent.",
 			},
-			{
+			"writer": {
 				Name:         "writer",
 				Description:  "Writing agent",
 				Provider:     "anthropic",
@@ -46,8 +47,8 @@ func TestEnvironment_Build(t *testing.T) {
 				Instructions: "You are a writing agent.",
 			},
 		},
-		Tasks: []Task{
-			{
+		Tasks: map[string]Task{
+			"research": {
 				Name:        "research",
 				Description: "Research task",
 				Kind:        "research",
@@ -66,7 +67,7 @@ func TestEnvironment_Build(t *testing.T) {
 					},
 				},
 			},
-			{
+			"write": {
 				Name:        "write",
 				Description: "Writing task",
 				Kind:        "write",
@@ -86,8 +87,8 @@ func TestEnvironment_Build(t *testing.T) {
 				},
 			},
 		},
-		Workflows: []Workflow{
-			{
+		Workflows: map[string]Workflow{
+			"research-and-write": {
 				Name:        "research-and-write",
 				Description: "Research and write workflow",
 				Steps: []Step{
@@ -113,8 +114,8 @@ func TestEnvironment_Build(t *testing.T) {
 				},
 			},
 		},
-		Triggers: []Trigger{
-			{
+		Triggers: map[string]Trigger{
+			"manual": {
 				Name: "manual",
 				Type: "manual",
 			},
@@ -137,16 +138,12 @@ func TestEnvironment_Build(t *testing.T) {
 	// Verify researcher agent
 	researcher := findAgentByName(agents, "researcher")
 	assert.NotNil(t, researcher)
-	assert.Equal(t, "Research agent", researcher.Description())
-	assert.Equal(t, "You are a research agent.", researcher.Instructions())
-	assert.False(t, researcher.IsSupervisor())
+	assert.False(t, researcher.(*agent.Agent).IsSupervisor())
 
 	// Verify writer agent
 	writer := findAgentByName(agents, "writer")
 	assert.NotNil(t, writer)
-	assert.Equal(t, "Writing agent", writer.Description())
-	assert.Equal(t, "You are a writing agent.", writer.Instructions())
-	assert.False(t, writer.IsSupervisor())
+	assert.False(t, writer.(*agent.Agent).IsSupervisor())
 
 	// Verify workflows
 	workflows := result.Workflows()

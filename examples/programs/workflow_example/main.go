@@ -132,11 +132,8 @@ func main() {
 	env, err := environment.New(environment.EnvironmentOptions{
 		Name:        "Research Environment",
 		Description: "A research environment for the research assistant. The supervisor will assign tasks to the research assistant.",
-		Agents: []dive.Agent{
-			supervisor,
-			researcher,
-		},
-		Workflows: []*workflow.Workflow{w},
+		Agents:      []dive.Agent{supervisor, researcher},
+		Workflows:   []*workflow.Workflow{w},
 	})
 	if err != nil {
 		log.Fatal(err)

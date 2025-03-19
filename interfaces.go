@@ -4,11 +4,6 @@ import (
 	"context"
 
 	"github.com/getstingrai/dive/llm"
-	"github.com/getstingrai/dive/slogger"
-)
-
-var (
-	DefaultLogger = slogger.NewDevNullLogger()
 )
 
 // OutputFormat defines the desired output format for a Task
@@ -106,17 +101,8 @@ type Agent interface {
 	// Name of the Agent
 	Name() string
 
-	// Description of the Agent's role and responsibilities
-	Description() string
-
-	// Instructions that guide the Agent's actions
-	Instructions() string
-
 	// IsSupervisor indicates whether the Agent can assign work to other Agents
 	IsSupervisor() bool
-
-	// Subordinates returns the names of the Agents that this Agent can supervise
-	Subordinates() []string
 
 	// SetEnvironment sets the runtime Environment to which this Agent belongs
 	SetEnvironment(env Environment)

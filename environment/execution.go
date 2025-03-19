@@ -303,9 +303,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		return fmt.Sprintf("%s-%d", path.id, nextPathID)
 	}
 
-	logger := slogger.Ctx(ctx).
-		With("path_id", path.id).
-		With("execution_id", e.id)
+	logger := e.logger.With("path_id", path.id).With("execution_id", e.id)
 
 	logger.Info("running path", "step", path.currentStep.Name())
 
@@ -526,4 +524,18 @@ func (e *Execution) StepOutputs() map[string]string {
 		}
 	}
 	return outputs
+}
+
+func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*dive.TaskResult, error) {
+	iterator, err := agent.Work(ctx, task)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)
+	}
+	defer iterator.Close()
+
+	taskResult, err := dive.WaitForEvent[*dive.TaskResult](ctx, iterator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait for task result: %w", err)
+	}
+	return taskResult, nil
 }

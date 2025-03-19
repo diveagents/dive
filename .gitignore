@@ -28,3 +28,5 @@ go.work.sum
 output
 /cmd/dive/dive
 tmp.json
+
+/private

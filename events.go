@@ -108,11 +108,6 @@ func NewStream() Stream {
 }
 
 func (s *streamImpl) Next(ctx context.Context) bool {
-	if s.closed {
-		return false
-	}
-
-	// Try to receive the next event
 	var ok bool
 	var event *Event
 	select {
@@ -126,15 +121,7 @@ func (s *streamImpl) Next(ctx context.Context) bool {
 			return false
 		}
 	}
-
 	s.curr = event
-
-	// Check if this is an error event
-	if event != nil && event.Error != nil {
-		s.err = event.Error
-		s.closed = true
-		return false
-	}
 	return true
 }
 

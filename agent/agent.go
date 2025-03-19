@@ -120,7 +120,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		opts.ToolIterationLimit = DefaultToolIterationLimit
 	}
 	if opts.Logger == nil {
-		opts.Logger = dive.DefaultLogger
+		opts.Logger = slogger.DefaultLogger
 	}
 	if opts.LLM == nil {
 		if llm, ok := detectProvider(); ok {
@@ -584,7 +584,6 @@ func (a *Agent) generate(
 		generateOpts := []llm.Option{
 			llm.WithSystemPrompt(systemPrompt),
 			llm.WithCacheControl(a.cacheControl),
-			llm.WithLogLevel(a.logLevel),
 			llm.WithTools(a.tools...),
 		}
 		if a.hooks != nil {
@@ -614,46 +613,47 @@ func (a *Agent) generate(
 		if streamingLLM, ok := a.llm.(llm.StreamingLLM); ok {
 			iterator, err := streamingLLM.Stream(ctx, updatedMessages, generateOpts...)
 			if err != nil {
-				return nil, updatedMessages, err
+				return nil, nil, err
 			}
-			defer iterator.Close()
-
 			for iterator.Next() {
 				event := iterator.Event()
-				var err error
+				if err := safePublish(&dive.Event{
+					Type:    "llm.event",
+					Origin:  a.eventOrigin(),
+					Payload: event,
+				}); err != nil {
+					iterator.Close()
+					return nil, nil, err
+				}
 				if event.Response != nil {
 					currentResponse = event.Response
-					err = safePublish(&dive.Event{
-						Type:    "llm.response",
-						Origin:  a.eventOrigin(),
-						Payload: currentResponse,
-					})
-				} else {
-					err = safePublish(&dive.Event{
-						Type:    "llm.event",
-						Origin:  a.eventOrigin(),
-						Payload: event,
-					})
-				}
-				if err != nil {
-					return nil, updatedMessages, err
 				}
 			}
+			iterator.Close()
 			if err := iterator.Err(); err != nil {
-				return nil, updatedMessages, err
+				return nil, nil, err
 			}
 		} else {
 			var err error
 			currentResponse, err = a.llm.Generate(ctx, updatedMessages, generateOpts...)
 			if err != nil {
-				return nil, updatedMessages, err
+				return nil, nil, err
 			}
 		}
 
 		if currentResponse == nil {
 			// This indicates a bug in the LLM provider implementation
-			return nil, updatedMessages, errors.New("no final response from llm provider")
+			return nil, nil, errors.New("no final response from llm provider")
 		}
+
+		if err := safePublish(&dive.Event{
+			Type:    "llm.response",
+			Origin:  a.eventOrigin(),
+			Payload: currentResponse,
+		}); err != nil {
+			return nil, nil, err
+		}
+
 		response = currentResponse
 		responseMessage := response.Message()
 
@@ -674,26 +674,22 @@ func (a *Agent) generate(
 			break
 		}
 
-		fmt.Println("tool calls", len(response.ToolCalls()))
-
 		// Execute all requested tool uses and accumulate results
 		shouldReturnResult := false
 		toolResults := make([]*llm.ToolResult, len(response.ToolCalls()))
 		for i, toolCall := range response.ToolCalls() {
-			fmt.Printf("tool call %d: %q %+v\n", i, toolCall.Name, toolCall)
 			tool, ok := a.toolsByName[toolCall.Name]
 			if !ok {
-				return nil, updatedMessages, fmt.Errorf("tool call for unknown tool: %q", toolCall.Name)
+				return nil, nil, fmt.Errorf("tool call for unknown tool: %q", toolCall.Name)
 			}
-			a.logger.Debug(
-				"tool call",
+			a.logger.Debug("tool call",
 				"agent_name", a.name,
 				"tool_name", toolCall.Name,
 				"tool_input", toolCall.Input,
 			)
 			result, err := tool.Call(ctx, toolCall.Input)
 			if err != nil {
-				return nil, updatedMessages, fmt.Errorf("tool call error: %w", err)
+				return nil, nil, fmt.Errorf("tool call error: %w", err)
 			}
 			toolResults[i] = &llm.ToolResult{
 				ID:     toolCall.ID,
@@ -709,18 +705,19 @@ func (a *Agent) generate(
 		if !shouldReturnResult {
 			break
 		}
+
 		// Capture results in a new message to send on next loop iteration
 		resultMessage := llm.NewToolResultMessage(toolResults)
 
 		// Add instructions to the message to not use any more tools if we have
-		// only one generation left.
+		// only one generation left
 		if i == generationLimit-2 {
 			resultMessage.Content = append(resultMessage.Content, &llm.Content{
 				Type: llm.ContentTypeText,
 				Text: "Do not use any more tools. You must respond with your final answer now.",
 			})
 			a.logger.Debug(
-				"adding tool use limit instruction",
+				"added tool use limit instruction",
 				"agent", a.name,
 				"step", stepName,
 				"generation_number", i+1,
@@ -812,8 +809,7 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		"task_name", task.Name(),
 		"timeout", timeout.String(),
 	)
-	logger.Info("handling task",
-		"status", state.Status)
+	logger.Info("handling task", "status", state.Status)
 
 	systemPrompt, err := a.getSystemPromptForMode("task")
 	if err != nil {
@@ -848,8 +844,7 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		}
 	}
 
-	logger.Info(
-		"handling task",
+	logger.Info("handling task",
 		"status", state.Status,
 		"truncated_description", TruncateText(task.Description(), 10),
 		"truncated_prompt", TruncateText(task.Prompt(dive.TaskPromptOptions{}), 10),
@@ -893,6 +888,8 @@ func (a *Agent) eventOrigin() dive.EventOrigin {
 }
 
 func (a *Agent) doSomeWork() {
+
+	fmt.Println("doSomeWork")
 
 	// Helper function to safely send events to the active task's publisher
 	safePublish := func(event *dive.Event) error {

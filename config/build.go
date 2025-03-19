@@ -45,12 +45,6 @@ func WithLogger(logger slogger.Logger) BuildOption {
 	}
 }
 
-func WithLogLevel(level string) BuildOption {
-	return func(opts *BuildOptions) {
-		opts.LogLevel = level
-	}
-}
-
 func WithOutputDir(dir string) BuildOption {
 	return func(opts *BuildOptions) {
 		opts.OutputDir = dir
