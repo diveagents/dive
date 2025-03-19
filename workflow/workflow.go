@@ -34,7 +34,7 @@ type WorkflowOptions struct {
 	Triggers    []*Trigger
 }
 
-// NewWorkflow creates and validates a workflow
+// NewWorkflow creates and validates a Workflow
 func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("workflow name required")

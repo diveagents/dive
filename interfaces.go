@@ -11,7 +11,7 @@ var (
 	DefaultLogger = slogger.NewDevNullLogger()
 )
 
-// OutputFormat defines the format of task results
+// OutputFormat defines the desired output format for a Task
 type OutputFormat string
 
 const (
@@ -20,6 +20,7 @@ const (
 	OutputJSON     OutputFormat = "json"
 )
 
+// TaskStatus indicates a Task's execution status
 type TaskStatus string
 
 const (
@@ -31,10 +32,6 @@ const (
 	TaskStatusError     TaskStatus = "error"
 	TaskStatusInvalid   TaskStatus = "invalid"
 )
-
-type TaskPromptOptions struct {
-	Context string
-}
 
 // Input defines an expected input parameter
 type Input struct {
@@ -52,6 +49,10 @@ type Output struct {
 	Description string      `json:"description,omitempty"`
 	Format      string      `json:"format,omitempty"`
 	Default     interface{} `json:"default,omitempty"`
+}
+
+type TaskPromptOptions struct {
+	Context string
 }
 
 // Task represents a unit of work that can be executed
@@ -101,23 +102,24 @@ type TaskResult struct {
 
 // Agent represents an AI agent that can perform tasks
 type Agent interface {
-	// Name returns the agent's name
+
+	// Name of the Agent
 	Name() string
 
-	// Description returns the agent's description
+	// Description of the Agent's role and responsibilities
 	Description() string
 
-	// Instructions returns the agent's base instructions
+	// Instructions that guide the Agent's actions
 	Instructions() string
 
-	// IsSupervisor returns true if the agent is a supervisor
+	// IsSupervisor indicates whether the Agent can assign work to other Agents
 	IsSupervisor() bool
 
-	// Subordinates returns names of agents this one can supervise
+	// Subordinates returns the names of the Agents that this Agent can supervise
 	Subordinates() []string
 
-	// Work gives the agent a task to complete
-	Work(ctx context.Context, task Task) (Stream, error)
+	// SetEnvironment sets the runtime Environment to which this Agent belongs
+	SetEnvironment(env Environment)
 
 	// Generate gives the agent a message to respond to
 	Generate(ctx context.Context, message *llm.Message, opts ...GenerateOption) (*llm.Response, error)
@@ -125,8 +127,8 @@ type Agent interface {
 	// Stream gives the agent a message to respond to and returns a stream of events
 	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (Stream, error)
 
-	// SetEnvironment sets the environment for the agent
-	SetEnvironment(env Environment)
+	// Work gives the agent a task to complete
+	Work(ctx context.Context, task Task) (Stream, error)
 }
 
 // RunnableAgent is an Agent that can be started and stopped
@@ -154,9 +156,51 @@ type EventHandlerAgent interface {
 	HandleEvent(ctx context.Context, event *Event) error
 }
 
+// Environment is a container for running Agents and Workflow Executions.
+// Interactivity between Agents is scoped to a single Environment.
 type Environment interface {
+
+	// Name of the Environment
 	Name() string
+
+	// Agents returns the list of all Agents belonging to this Environment
 	Agents() []Agent
+
+	// RegisterAgent adds an Agent to this Environment
 	RegisterAgent(agent Agent) error
+
+	// GetAgent returns the Agent with the given name, if found
 	GetAgent(name string) (Agent, error)
+}
+
+// GenerateOptions contains configuration for LLM generations.
+type GenerateOptions struct {
+	ThreadID string
+	UserID   string
+}
+
+// GenerateOption is a type signature for defining new LLM generation options.
+type GenerateOption func(*GenerateOptions)
+
+// Apply invokes any supplied options. Used internally in Dive.
+func (o *GenerateOptions) Apply(opts []GenerateOption) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+
+// WithThreadID associates the given conversation thread ID with a generation.
+// This appends the new messages to any previous messages belonging to this thread.
+func WithThreadID(threadID string) GenerateOption {
+	return func(opts *GenerateOptions) {
+		opts.ThreadID = threadID
+	}
+}
+
+// WithUserID associates the given user ID with a generation, indicating what
+// person is the speaker in the conversation.
+func WithUserID(userID string) GenerateOption {
+	return func(opts *GenerateOptions) {
+		opts.UserID = userID
+	}
 }

@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 
 var _ dive.Task = &Task{}
 
-// TaskOptions are used to create a Task
+// TaskOptions are used to configure a new Task
 type TaskOptions struct {
 	Name        string
 	Description string
@@ -23,7 +22,8 @@ type TaskOptions struct {
 	Agent       dive.Agent
 }
 
-// Task represents one unit of work in a workflow
+// Task represents one unit of work within a Workflow. It may be reused by being
+// called multiple times.
 type Task struct {
 	name         string
 	description  string
@@ -35,15 +35,13 @@ type Task struct {
 	nameIsRandom bool
 }
 
-// NewTask creates a new Task from a TaskOptions
+// NewTask returns a new Task that is configured with the given options.
 func NewTask(opts TaskOptions) *Task {
 	var nameIsRandom bool
 	if opts.Name == "" {
 		opts.Name = fmt.Sprintf("task-%s", petname.Generate(2, "-"))
 		nameIsRandom = true
 	}
-	fmt.Printf("inputs: %+v\n", opts.Inputs)
-	fmt.Printf("outputs: %+v\n", opts.Outputs)
 	return &Task{
 		name:         opts.Name,
 		description:  opts.Description,
@@ -110,18 +108,6 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 	}
 	promptParts = append(promptParts, "\n\nPlease begin working on the task.")
 	return strings.Join(promptParts, "\n\n")
-}
-
-var validFilenamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
-
-func isSimpleFilename(filename string) bool {
-	// Check if filename is empty or too long
-	if filename == "" || len(filename) > 255 {
-		return false
-	}
-	// Only allow alphanumeric characters, dash, underscore, and period
-	// Must start with an alphanumeric character
-	return validFilenamePattern.MatchString(filename)
 }
 
 func formatBlock(heading, blockType, content string) string {
