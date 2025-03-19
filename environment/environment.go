@@ -13,26 +13,28 @@ import (
 
 // Environment is a container for running agents and workflow executions
 type Environment struct {
-	id          string
-	name        string
-	description string
-	agents      map[string]dive.Agent
-	workflows   map[string]*workflow.Workflow
-	triggers    []*Trigger
-	executions  map[string]*Execution
-	logger      slogger.Logger
+	id              string
+	name            string
+	description     string
+	agents          map[string]dive.Agent
+	workflows       map[string]*workflow.Workflow
+	triggers        []*Trigger
+	executions      map[string]*Execution
+	logger          slogger.Logger
+	defaultWorkflow string
 }
 
 // EnvironmentOptions configures a new environment
 type EnvironmentOptions struct {
-	ID          string
-	Name        string
-	Description string
-	Agents      []dive.Agent
-	Workflows   []*workflow.Workflow
-	Triggers    []*Trigger
-	Executions  []*Execution
-	Logger      slogger.Logger
+	ID              string
+	Name            string
+	Description     string
+	Agents          []dive.Agent
+	Workflows       []*workflow.Workflow
+	Triggers        []*Trigger
+	Executions      []*Execution
+	Logger          slogger.Logger
+	DefaultWorkflow string
 }
 
 // New creates a new Environment instance
@@ -62,17 +64,22 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		executions[execution.ID()] = execution
 	}
 
-	fmt.Println("LOGGER:", opts.Logger)
+	if opts.DefaultWorkflow != "" {
+		if _, exists := workflows[opts.DefaultWorkflow]; !exists {
+			return nil, fmt.Errorf("default workflow not found: %s", opts.DefaultWorkflow)
+		}
+	}
 
 	env := &Environment{
-		id:          opts.ID,
-		name:        opts.Name,
-		description: opts.Description,
-		agents:      agents,
-		workflows:   workflows,
-		triggers:    opts.Triggers,
-		executions:  executions,
-		logger:      opts.Logger,
+		id:              opts.ID,
+		name:            opts.Name,
+		description:     opts.Description,
+		agents:          agents,
+		workflows:       workflows,
+		triggers:        opts.Triggers,
+		executions:      executions,
+		logger:          opts.Logger,
+		defaultWorkflow: opts.DefaultWorkflow,
 	}
 
 	for _, trigger := range env.triggers {
@@ -169,13 +176,29 @@ func (e *Environment) StartWorkflow(
 		return nil, fmt.Errorf("workflow not found: %s", workflow.Name())
 	}
 
+	// Build up the input variables with defaults and validation
+	processedInputs := make(map[string]interface{})
+	for name, input := range workflow.Inputs() {
+		value, exists := inputs[name]
+		if !exists {
+			// If input doesn't exist, check if it has a default value
+			if input.Default != nil {
+				processedInputs[name] = input.Default
+				continue
+			}
+			return nil, fmt.Errorf("required input %q not provided", name)
+		}
+		// Input exists, use the provided value
+		processedInputs[name] = value
+	}
+
 	execution := NewExecution(ExecutionOptions{
 		ID:          uuid.New().String(),
 		Environment: e,
 		Workflow:    workflow,
 		Status:      StatusPending,
 		StartTime:   time.Now(),
-		Inputs:      inputs,
+		Inputs:      processedInputs,
 		Logger:      e.logger,
 	})
 	e.executions[execution.ID()] = execution

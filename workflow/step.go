@@ -2,8 +2,11 @@ package workflow
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/getstingrai/dive"
+	"github.com/risor-io/risor/compiler"
 )
 
 type Condition interface {
@@ -28,20 +31,19 @@ type EachBlock struct {
 }
 
 type Step struct {
-	name    string
-	task    dive.Task
-	inputs  map[string]interface{}
-	outputs map[string]interface{}
-	next    []*Edge
-	isStart bool
-	each    *EachBlock
+	name     string
+	task     dive.Task
+	with     map[string]any
+	withCode map[string]*compiler.Code
+	next     []*Edge
+	isStart  bool
+	each     *EachBlock
 }
 
 type StepOptions struct {
 	Name    string
 	Task    dive.Task
-	Inputs  map[string]interface{}
-	Outputs map[string]interface{}
+	With    map[string]any
 	Next    []*Edge
 	IsStart bool
 	Each    *EachBlock
@@ -51,46 +53,77 @@ func NewStep(opts StepOptions) *Step {
 	return &Step{
 		name:    opts.Name,
 		task:    opts.Task,
-		inputs:  opts.Inputs,
-		outputs: opts.Outputs,
+		with:    opts.With,
 		next:    opts.Next,
 		isStart: opts.IsStart,
 		each:    opts.Each,
 	}
 }
 
-func (n *Step) IsStart() bool {
-	return n.isStart
+func (s *Step) IsStart() bool {
+	return s.isStart
 }
 
-func (n *Step) SetIsStart(isStart bool) {
-	n.isStart = isStart
+func (s *Step) SetIsStart(isStart bool) {
+	s.isStart = isStart
 }
 
-func (n *Step) Name() string {
-	return n.name
+func (s *Step) Name() string {
+	return s.name
 }
 
-func (n *Step) Task() dive.Task {
-	return n.task
+func (s *Step) Task() dive.Task {
+	return s.task
 }
 
-func (n *Step) TaskName() string {
-	return n.task.Name()
+func (s *Step) TaskName() string {
+	return s.task.Name()
 }
 
-func (n *Step) Inputs() map[string]interface{} {
-	return n.inputs
+func (s *Step) With() map[string]any {
+	return s.with
 }
 
-func (n *Step) Outputs() map[string]interface{} {
-	return n.outputs
+func (s *Step) Next() []*Edge {
+	return s.next
 }
 
-func (n *Step) Next() []*Edge {
-	return n.next
+func (s *Step) Each() *EachBlock {
+	return s.each
 }
 
-func (n *Step) Each() *EachBlock {
-	return n.each
+func (s *Step) Compile(ctx context.Context) error {
+	if s.withCode != nil {
+		return nil // already compiled
+	}
+	withCode := make(map[string]*compiler.Code)
+	for name, value := range s.with {
+		strValue, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(strValue, "$(") {
+			continue
+		}
+		if !strings.HasSuffix(strValue, ")") {
+			return fmt.Errorf("step: %q variable: %q error: invalid with value", s.name, name)
+		}
+		// Extract and compile the code
+		trimmedValue := strings.TrimPrefix(strValue, "$(")
+		trimmedValue = strings.TrimSuffix(trimmedValue, ")")
+		code, err := compileScript(ctx, trimmedValue, map[string]any{
+			"inputs": nil,
+		})
+		if err != nil {
+			return fmt.Errorf("step: %q variable: %q error: %w", s.name, name, err)
+		}
+		withCode[name] = code
+	}
+	s.withCode = withCode
+	return nil
+}
+
+func (s *Step) Code(name string) (*compiler.Code, bool) {
+	code, ok := s.withCode[name]
+	return code, ok
 }

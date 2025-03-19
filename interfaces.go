@@ -48,6 +48,7 @@ type Output struct {
 
 type TaskPromptOptions struct {
 	Context string
+	Inputs  map[string]any
 }
 
 // Task represents a unit of work that can be executed
@@ -71,7 +72,7 @@ type Task interface {
 	Outputs() map[string]Output
 
 	// Prompt returns the prompt for the task
-	Prompt(opts TaskPromptOptions) string
+	Prompt(opts TaskPromptOptions) (string, error)
 }
 
 // TaskResult holds the output of a completed task
@@ -114,7 +115,7 @@ type Agent interface {
 	Stream(ctx context.Context, message *llm.Message, opts ...GenerateOption) (Stream, error)
 
 	// Work gives the agent a task to complete
-	Work(ctx context.Context, task Task) (Stream, error)
+	Work(ctx context.Context, task Task, inputs map[string]any) (Stream, error)
 }
 
 // RunnableAgent is an Agent that can be started and stopped

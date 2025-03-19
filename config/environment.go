@@ -101,7 +101,7 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		if agentDef.Name == "" {
 			agentDef.Name = name
 		}
-		agent, err := buildAgent(agentDef, env.Config, toolsMap, buildOpts.Logger, buildOpts.Variables)
+		agent, err := buildAgent(agentDef, env.Config, toolsMap, buildOpts.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build agent %s: %w", agentDef.Name, err)
 		}
@@ -114,7 +114,7 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		if taskDef.Name == "" {
 			taskDef.Name = name
 		}
-		task, err := buildTask(taskDef, agents, buildOpts.Variables)
+		task, err := buildTask(taskDef, agents)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build task %s: %w", taskDef.Name, err)
 		}

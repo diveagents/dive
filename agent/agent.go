@@ -392,7 +392,7 @@ func (a *Agent) HandleEvent(ctx context.Context, event *dive.Event) error {
 	}
 }
 
-func (a *Agent) Work(ctx context.Context, task dive.Task) (dive.Stream, error) {
+func (a *Agent) Work(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error) {
 	if !a.IsRunning() {
 		return nil, fmt.Errorf("agent is not running")
 	}
@@ -402,6 +402,7 @@ func (a *Agent) Work(ctx context.Context, task dive.Task) (dive.Stream, error) {
 
 	message := messageWork{
 		task:      task,
+		inputs:    inputs,
 		publisher: stream.Publisher(),
 	}
 
@@ -451,6 +452,7 @@ func (a *Agent) handleWork(m messageWork) {
 		Task:      m.task,
 		Publisher: m.publisher,
 		Status:    dive.TaskStatusQueued,
+		Inputs:    m.inputs,
 	})
 }
 
@@ -821,6 +823,7 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		return err
 	}
 
+	var prompt string
 	messages := []*llm.Message{}
 
 	if len(state.Messages) == 0 {
@@ -831,9 +834,15 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		if documentsMessage != nil {
 			messages = append(messages, documentsMessage)
 		}
-		messages = append(messages, llm.NewUserMessage(task.Prompt(dive.TaskPromptOptions{
+		var err error
+		prompt, err = task.Prompt(dive.TaskPromptOptions{
 			Context: "", // TODO
-		})))
+			Inputs:  state.Inputs,
+		})
+		if err != nil {
+			return err
+		}
+		messages = append(messages, llm.NewUserMessage(prompt))
 	} else {
 		// Resuming a step
 		messages = append(messages, state.Messages...)
@@ -846,8 +855,7 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 
 	logger.Info("handling task",
 		"status", state.Status,
-		"truncated_description", TruncateText(task.Description(), 10),
-		"truncated_prompt", TruncateText(task.Prompt(dive.TaskPromptOptions{}), 10),
+		"truncated_description", TruncateText(prompt, 10),
 		"message_count", len(messages),
 	)
 
@@ -888,8 +896,6 @@ func (a *Agent) eventOrigin() dive.EventOrigin {
 }
 
 func (a *Agent) doSomeWork() {
-
-	fmt.Println("doSomeWork")
 
 	// Helper function to safely send events to the active task's publisher
 	safePublish := func(event *dive.Event) error {

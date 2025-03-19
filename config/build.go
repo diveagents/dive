@@ -57,14 +57,7 @@ func WithRepository(repo document.Repository) BuildOption {
 	}
 }
 
-func buildAgent(
-	agentDef AgentConfig,
-	globalConfig Config,
-	toolsMap map[string]llm.Tool,
-	logger slogger.Logger,
-	variables map[string]interface{},
-) (dive.Agent, error) {
-
+func buildAgent(agentDef AgentConfig, globalConfig Config, toolsMap map[string]llm.Tool, logger slogger.Logger) (dive.Agent, error) {
 	provider := agentDef.Provider
 	if provider == "" {
 		provider = globalConfig.DefaultProvider
@@ -151,11 +144,7 @@ func buildAgent(
 	return agent, nil
 }
 
-func buildTask(
-	taskDef Task,
-	agents []dive.Agent,
-	variables map[string]interface{},
-) (*workflow.Task, error) {
+func buildTask(taskDef Task, agents []dive.Agent) (*workflow.Task, error) {
 	var timeout time.Duration
 	if taskDef.Timeout != "" {
 		var err error
@@ -263,7 +252,7 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 
 		// Convert inputs from map[string]string to map[string]interface{}
 		inputs := make(map[string]interface{})
-		for k, v := range step.Inputs {
+		for k, v := range step.With {
 			inputs[k] = v
 		}
 
@@ -279,7 +268,7 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			Name:    step.Name,
 			Task:    task,
 			Next:    edges,
-			Inputs:  inputs,
+			With:    inputs,
 			Each:    each,
 			IsStart: step.IsStart,
 		})
@@ -300,9 +289,33 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		steps[0].SetIsStart(true)
 	}
 
+	inputs := make(map[string]dive.Input)
+	for name, input := range workflowDef.Inputs {
+		inputs[name] = dive.Input{
+			Name:        name,
+			Type:        input.Type,
+			Description: input.Description,
+			Required:    input.Required,
+			Default:     input.Default,
+		}
+	}
+
+	outputs := make(map[string]dive.Output)
+	for name, output := range workflowDef.Outputs {
+		outputs[name] = dive.Output{
+			Name:        name,
+			Type:        output.Type,
+			Description: output.Description,
+			Format:      output.Format,
+			Default:     output.Default,
+		}
+	}
+
 	return workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name:        workflowDef.Name,
 		Description: workflowDef.Description,
+		Inputs:      inputs,
+		Outputs:     outputs,
 		Steps:       steps,
 		Triggers:    triggers,
 	})

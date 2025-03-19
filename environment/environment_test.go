@@ -18,7 +18,7 @@ func TestNewEnvironment(t *testing.T) {
 
 	a := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "Poet Laureate",
-		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+		Work: func(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error) {
 			tasks = append(tasks, task)
 			stream := dive.NewStream()
 			publisher := stream.Publisher()
@@ -101,7 +101,7 @@ func TestEnvironmentWithMultipleAgents(t *testing.T) {
 
 	agent1 := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "Writer",
-		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+		Work: func(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error) {
 			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()
@@ -117,7 +117,7 @@ func TestEnvironmentWithMultipleAgents(t *testing.T) {
 
 	agent2 := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "Editor",
-		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+		Work: func(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error) {
 			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()
@@ -189,7 +189,7 @@ func TestExecutionStats(t *testing.T) {
 
 	mockAgent := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "StatsAgent",
-		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+		Work: func(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error) {
 			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()
@@ -250,7 +250,7 @@ func TestExecutionCancellation(t *testing.T) {
 
 	mockAgent := agent.NewMockAgent(agent.MockAgentOptions{
 		Name: "SlowAgent",
-		Work: func(ctx context.Context, task dive.Task) (dive.Stream, error) {
+		Work: func(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error) {
 			stream := dive.NewStream()
 			go func() {
 				publisher := stream.Publisher()

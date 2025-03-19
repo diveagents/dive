@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/getstingrai/dive"
@@ -45,6 +46,11 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 	graph := NewGraph(opts.Steps)
 	if err := graph.Validate(); err != nil {
 		return nil, fmt.Errorf("graph validation failed: %w", err)
+	}
+	for _, step := range opts.Steps {
+		if err := step.Compile(context.Background()); err != nil {
+			return nil, fmt.Errorf("step compilation failed: %w", err)
+		}
 	}
 	w := &Workflow{
 		name:        opts.Name,

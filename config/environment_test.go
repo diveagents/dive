@@ -53,14 +53,14 @@ func TestEnvironment_Build(t *testing.T) {
 				Description: "Research task",
 				Kind:        "research",
 				Agent:       "researcher",
-				Inputs: map[string]TaskInput{
+				Inputs: map[string]Input{
 					"topic": {
 						Type:        "string",
 						Description: "Research topic",
 						Required:    true,
 					},
 				},
-				Outputs: map[string]TaskOutput{
+				Outputs: map[string]Output{
 					"findings": {
 						Type:        "string",
 						Description: "Research findings",
@@ -72,14 +72,14 @@ func TestEnvironment_Build(t *testing.T) {
 				Description: "Writing task",
 				Kind:        "write",
 				Agent:       "writer",
-				Inputs: map[string]TaskInput{
+				Inputs: map[string]Input{
 					"content": {
 						Type:        "string",
 						Description: "Content to write",
 						Required:    true,
 					},
 				},
-				Outputs: map[string]TaskOutput{
+				Outputs: map[string]Output{
 					"result": {
 						Type:        "string",
 						Description: "Written content",
@@ -95,7 +95,7 @@ func TestEnvironment_Build(t *testing.T) {
 					{
 						Name: "research-step",
 						Task: "research",
-						Inputs: map[string]string{
+						With: map[string]any{
 							"topic": "AI technology",
 						},
 						Next: []NextStep{
@@ -107,7 +107,7 @@ func TestEnvironment_Build(t *testing.T) {
 					{
 						Name: "write-step",
 						Task: "write",
-						Inputs: map[string]string{
+						With: map[string]any{
 							"content": "{{node.research-step.outputs.findings}}",
 						},
 					},

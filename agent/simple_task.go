@@ -42,7 +42,7 @@ func (t *SimpleTask) Dependencies() []string {
 	return t.dependencies
 }
 
-func (t *SimpleTask) Prompt(opts dive.TaskPromptOptions) string {
+func (t *SimpleTask) Prompt(opts dive.TaskPromptOptions) (string, error) {
 	prompt := "Complete the following task:\n\n" + t.description
 	var contextParts []string
 	if opts.Context != "" {
@@ -69,7 +69,7 @@ func (t *SimpleTask) Prompt(opts dive.TaskPromptOptions) string {
 		}
 	}
 
-	return prompt
+	return prompt, nil
 }
 
 func (t *SimpleTask) Validate() error {

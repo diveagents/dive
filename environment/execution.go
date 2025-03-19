@@ -10,6 +10,9 @@ import (
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
+	"github.com/risor-io/risor"
+	"github.com/risor-io/risor/compiler"
+	"github.com/risor-io/risor/object"
 )
 
 // PathStatus represents the current state of an execution path
@@ -246,7 +249,7 @@ func (e *Execution) run(ctx context.Context) error {
 					state.Error = update.err
 					state.EndTime = time.Now()
 				})
-				return fmt.Errorf("path %s failed: %w", update.pathID, update.err)
+				return update.err
 			}
 
 			// Store task output and update path state
@@ -303,7 +306,9 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		return fmt.Sprintf("%s-%d", path.id, nextPathID)
 	}
 
-	logger := e.logger.With("path_id", path.id).With("execution_id", e.id)
+	logger := slogger.Ctx(ctx).
+		With("path_id", path.id).
+		With("execution_id", e.id)
 
 	logger.Info("running path", "step", path.currentStep.Name())
 
@@ -335,13 +340,53 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		} else {
 			agent = e.environment.Agents()[0]
 		}
+		withInputs := currentStep.With()
+		taskInputs := task.Inputs()
+
+		// Determine task inputs
+		processedInputs := make(map[string]interface{})
+		for name, input := range taskInputs {
+			value, exists := withInputs[name]
+			if !exists {
+				if input.Default == nil {
+					err := fmt.Errorf("required input %q not provided in step %q", name, currentStep.Name())
+					e.logger.Error("task execution failed", "error", err)
+					updates <- pathUpdate{pathID: path.id, err: err}
+					return
+				}
+				value = input.Default
+			}
+			if code, ok := currentStep.Code(name); ok {
+				result, err := eval(ctx, code, map[string]any{
+					"inputs": e.inputs,
+				})
+				if err != nil {
+					e.logger.Error("task execution failed", "error", err)
+					updates <- pathUpdate{pathID: path.id, err: err}
+					return
+				}
+				processedInputs[name] = result
+			} else {
+				processedInputs[name] = value
+			}
+		}
+
+		// Confirm there were no invalid "with" parameters provided
+		for name := range withInputs {
+			if _, exists := taskInputs[name]; !exists {
+				err := fmt.Errorf("unknown input %q provided in step %q", name, currentStep.Name())
+				e.logger.Error("task execution failed", "error", err)
+				updates <- pathUpdate{pathID: path.id, err: err}
+				return
+			}
+		}
 
 		// Update path state with current task
 		e.updatePathState(path.id, func(state *PathState) {
 			state.CurrentStep = currentStep
 		})
 
-		result, err := executeTask(ctx, agent, task)
+		result, err := executeTask(ctx, agent, task, processedInputs)
 		if err != nil {
 			logger.Error("task execution failed",
 				"task", task.Name(),
@@ -526,8 +571,8 @@ func (e *Execution) StepOutputs() map[string]string {
 	return outputs
 }
 
-func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*dive.TaskResult, error) {
-	iterator, err := agent.Work(ctx, task)
+func executeTask(ctx context.Context, agent dive.Agent, task dive.Task, inputs map[string]interface{}) (*dive.TaskResult, error) {
+	iterator, err := agent.Work(ctx, task, inputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)
 	}
@@ -538,4 +583,25 @@ func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*dive.T
 		return nil, fmt.Errorf("failed to wait for task result: %w", err)
 	}
 	return taskResult, nil
+}
+
+func eval(ctx context.Context, code *compiler.Code, inputs map[string]any) (any, error) {
+	result, err := risor.EvalCode(ctx, code, risor.WithGlobals(map[string]any{
+		"inputs": inputs,
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate code: %w", err)
+	}
+	switch result := result.(type) {
+	case *object.String:
+		return result.Value(), nil
+	case *object.Int:
+		return result.Value(), nil
+	case *object.Float:
+		return result.Value(), nil
+	case *object.Bool:
+		return result.Value(), nil
+	default:
+		return nil, fmt.Errorf("unsupported result type: %T", result)
+	}
 }

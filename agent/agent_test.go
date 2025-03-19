@@ -129,7 +129,7 @@ func TestAgentTask(t *testing.T) {
 				Description: "A limerick about a cat",
 			},
 		},
-	})
+	}, map[string]any{})
 	require.NoError(t, err)
 
 	event, err := dive.WaitForEvent[*dive.TaskResult](ctx, stream)

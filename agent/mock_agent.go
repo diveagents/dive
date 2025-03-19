@@ -7,7 +7,7 @@ import (
 	"github.com/getstingrai/dive/llm"
 )
 
-type WorkFunc func(ctx context.Context, task dive.Task) (dive.Stream, error)
+type WorkFunc func(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error)
 
 type HandleEventFunc func(ctx context.Context, event *dive.Event) error
 
@@ -82,8 +82,8 @@ func (a *MockAgent) SetEnvironment(env dive.Environment) {
 	a.environment = env
 }
 
-func (a *MockAgent) Work(ctx context.Context, task dive.Task) (dive.Stream, error) {
-	return a.work(ctx, task)
+func (a *MockAgent) Work(ctx context.Context, task dive.Task, inputs map[string]any) (dive.Stream, error) {
+	return a.work(ctx, task, inputs)
 }
 
 func (a *MockAgent) Generate(ctx context.Context, message *llm.Message, opts ...dive.GenerateOption) (*llm.Response, error) {

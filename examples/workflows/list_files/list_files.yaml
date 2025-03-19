@@ -1,23 +1,10 @@
 name: 'File Explorer'
 description: 'List files in a directory'
 
-variables:
-  provider:
-    type: string
-    description: 'The default provider to use for the team'
-    default: 'anthropic'
-  model:
-    type: string
-    description: 'The default model to use for the team'
-    default: 'claude-3-7-sonnet-20250219'
-  log_level:
-    type: string
-    description: 'The log level to use for the team'
-    default: 'info'
-  directory:
-    type: string
-    description: 'The directory to list files in'
-    default: '.'
+config:
+  default_provider: 'anthropic'
+  default_model: 'claude-3-7-sonnet-20250219'
+  log_level: 'info'
 
 tools:
   google_search:
@@ -40,14 +27,23 @@ agents:
 
 tasks:
   list-files:
-    description: 'List all files in the directory: ${var.directory}'
-    assigned_agent: ${agents.engineer}
+    description: 'List all files in the directory: ${inputs.directory}'
+    assigned_agent: engineer
+    inputs:
+      directory:
+        type: string
+        description: 'The directory to list files in'
 
 workflows:
   list-files:
     description: 'List all files in a directory'
+    inputs:
+      directory:
+        type: string
+        description: 'The directory to list files in'
+        default: '.'
     steps:
       - name: 'List Files'
         task: list-files
-        inputs:
-          directory: ${var.directory}
+        with:
+          directory: $(".")

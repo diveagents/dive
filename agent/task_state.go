@@ -11,6 +11,7 @@ type taskState struct {
 	Task               dive.Task
 	Publisher          dive.Publisher
 	Status             dive.TaskStatus
+	Inputs             map[string]any
 	Iterations         int
 	Started            time.Time
 	StructuredResponse StructuredResponse

@@ -10,6 +10,7 @@ import (
 // messageWork represents a task assignment message sent to an agent
 type messageWork struct {
 	task      dive.Task
+	inputs    map[string]any
 	publisher dive.Publisher
 }
 

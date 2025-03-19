@@ -1,12 +1,14 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/eval"
 )
 
 var _ dive.Task = &Task{}
@@ -33,6 +35,8 @@ type Task struct {
 	timeout      time.Duration
 	agent        dive.Agent
 	nameIsRandom bool
+	descTemplate *eval.String
+	descErr      error
 }
 
 // NewTask returns a new Task that is configured with the given options.
@@ -42,6 +46,11 @@ func NewTask(opts TaskOptions) *Task {
 		opts.Name = fmt.Sprintf("task-%s", petname.Generate(2, "-"))
 		nameIsRandom = true
 	}
+	var descErr error
+	var descTemplate *eval.String
+	descTemplate, descErr = eval.NewString(opts.Description, map[string]any{
+		"inputs": nil,
+	})
 	return &Task{
 		name:         opts.Name,
 		description:  opts.Description,
@@ -51,6 +60,8 @@ func NewTask(opts TaskOptions) *Task {
 		timeout:      opts.Timeout,
 		agent:        opts.Agent,
 		nameIsRandom: nameIsRandom,
+		descTemplate: descTemplate,
+		descErr:      descErr,
 	}
 }
 
@@ -74,17 +85,42 @@ func (t *Task) Validate() error {
 }
 
 // Prompt returns the LLM prompt for the task
-func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
+func (t *Task) Prompt(opts dive.TaskPromptOptions) (string, error) {
+	if t.descErr != nil {
+		return "", t.descErr
+	}
+
+	// Resolve inputs
+	processedInputs := make(map[string]any)
+	for name, input := range t.inputs {
+		if value, ok := opts.Inputs[name]; ok {
+			processedInputs[name] = value
+		} else if input.Default != nil {
+			processedInputs[name] = input.Default
+		} else {
+			return "", fmt.Errorf("input %q is required", name)
+		}
+	}
+
 	var intro string
 	if t.name != "" && !t.nameIsRandom {
 		intro = fmt.Sprintf("Let's work on a new task named %q.", t.name)
 	} else {
 		intro = "Let's work on a new task."
 	}
+
 	lines := []string{}
+
 	if t.description != "" {
-		lines = append(lines, t.description)
+		description, err := t.descTemplate.Eval(context.Background(), map[string]any{
+			"inputs": processedInputs,
+		})
+		if err != nil {
+			return "", err
+		}
+		lines = append(lines, description)
 	}
+
 	if len(t.outputs) > 0 {
 		outputLines := []string{"Please provide the following outputs:"}
 		for name, output := range t.outputs {
@@ -95,9 +131,11 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 		}
 		lines = append(lines, strings.Join(outputLines, "\n"))
 	}
+
 	promptParts := []string{
 		formatBlock(intro, "task", strings.Join(lines, "\n\n")),
 	}
+
 	var contextParts []string
 	if opts.Context != "" {
 		contextParts = append(contextParts, opts.Context)
@@ -106,8 +144,9 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) string {
 		contextHeading := "Use this context while working on the task:"
 		promptParts = append(promptParts, formatBlock(contextHeading, "context", strings.Join(contextParts, "\n\n")))
 	}
+
 	promptParts = append(promptParts, "\n\nPlease begin working on the task.")
-	return strings.Join(promptParts, "\n\n")
+	return strings.Join(promptParts, "\n\n"), nil
 }
 
 func formatBlock(heading, blockType, content string) string {

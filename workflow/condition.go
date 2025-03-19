@@ -48,3 +48,22 @@ func (c *EvalCondition) Evaluate(ctx context.Context, inputs map[string]any) (bo
 	}
 	return result.IsTruthy(), nil
 }
+
+func compileScript(ctx context.Context, script string, globals map[string]any) (*compiler.Code, error) {
+	ast, err := parser.Parse(ctx, script)
+	if err != nil {
+		return nil, err
+	}
+
+	var globalNames []string
+	for name := range globals {
+		globalNames = append(globalNames, name)
+	}
+	sort.Strings(globalNames)
+
+	code, err := compiler.Compile(ast, compiler.WithGlobalNames(globalNames))
+	if err != nil {
+		return nil, err
+	}
+	return code, nil
+}

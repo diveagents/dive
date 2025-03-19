@@ -5,6 +5,7 @@ type Config struct {
 	CacheControl    string `yaml:"cache_control,omitempty" json:"cache_control,omitempty"`
 	DefaultProvider string `yaml:"default_provider,omitempty" json:"default_provider,omitempty"`
 	DefaultModel    string `yaml:"default_model,omitempty" json:"default_model,omitempty"`
+	DefaultWorkflow string `yaml:"default_workflow,omitempty" json:"default_workflow,omitempty"`
 	LogLevel        string `yaml:"log_level,omitempty" json:"log_level,omitempty"`
 }
 
@@ -49,16 +50,16 @@ type AgentConfig struct {
 	Memory             AgentMemory    `yaml:"memory,omitempty" json:"memory,omitempty"`
 }
 
-// TaskInput represents an input parameter for a task
-type TaskInput struct {
+// Input represents an input parameter for a task or workflow
+type Input struct {
 	Type        string `yaml:"type,omitempty" json:"type,omitempty"`
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	Required    bool   `yaml:"required,omitempty" json:"required,omitempty"`
 	Default     any    `yaml:"default,omitempty" json:"default,omitempty"`
 }
 
-// TaskOutput represents an output parameter for a task
-type TaskOutput struct {
+// Output represents an output parameter for a task or workflow
+type Output struct {
 	Type        string `yaml:"type,omitempty" json:"type,omitempty"`
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	Format      string `yaml:"format,omitempty" json:"format,omitempty"`
@@ -67,24 +68,24 @@ type TaskOutput struct {
 
 // Task is a serializable representation of a dive.Task
 type Task struct {
-	Name        string                `yaml:"name,omitempty" json:"name,omitempty"`
-	Description string                `yaml:"description,omitempty" json:"description,omitempty"`
-	Kind        string                `yaml:"kind,omitempty" json:"kind,omitempty"`
-	Agent       string                `yaml:"agent,omitempty" json:"agent,omitempty"`
-	OutputFile  string                `yaml:"output_file,omitempty" json:"output_file,omitempty"`
-	Timeout     string                `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Inputs      map[string]TaskInput  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	Outputs     map[string]TaskOutput `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+	Name        string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string            `yaml:"description,omitempty" json:"description,omitempty"`
+	Kind        string            `yaml:"kind,omitempty" json:"kind,omitempty"`
+	Agent       string            `yaml:"agent,omitempty" json:"agent,omitempty"`
+	OutputFile  string            `yaml:"output_file,omitempty" json:"output_file,omitempty"`
+	Timeout     string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Inputs      map[string]Input  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Outputs     map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 }
 
 // Step represents a single step in a workflow
 type Step struct {
-	Name    string            `yaml:"name,omitempty" json:"name,omitempty"`
-	Task    string            `yaml:"task,omitempty" json:"task,omitempty"`
-	Inputs  map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	Each    *EachBlock        `yaml:"each,omitempty" json:"each,omitempty"`
-	Next    []NextStep        `yaml:"next,omitempty" json:"next,omitempty"`
-	IsStart bool              `yaml:"is_start,omitempty" json:"is_start,omitempty"`
+	Name    string         `yaml:"name,omitempty" json:"name,omitempty"`
+	Task    string         `yaml:"task,omitempty" json:"task,omitempty"`
+	With    map[string]any `yaml:"with,omitempty" json:"with,omitempty"`
+	Each    *EachBlock     `yaml:"each,omitempty" json:"each,omitempty"`
+	Next    []NextStep     `yaml:"next,omitempty" json:"next,omitempty"`
+	IsStart bool           `yaml:"is_start,omitempty" json:"is_start,omitempty"`
 }
 
 // EachBlock represents iteration configuration for a step
@@ -103,10 +104,12 @@ type NextStep struct {
 
 // Workflow represents a workflow definition
 type Workflow struct {
-	Name        string    `yaml:"name,omitempty" json:"name,omitempty"`
-	Description string    `yaml:"description,omitempty" json:"description,omitempty"`
-	Triggers    []Trigger `yaml:"triggers,omitempty" json:"triggers,omitempty"`
-	Steps       []Step    `yaml:"steps,omitempty" json:"steps,omitempty"`
+	Name        string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string            `yaml:"description,omitempty" json:"description,omitempty"`
+	Inputs      map[string]Input  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Outputs     map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+	Triggers    []Trigger         `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	Steps       []Step            `yaml:"steps,omitempty" json:"steps,omitempty"`
 }
 
 // Trigger represents a trigger definition
