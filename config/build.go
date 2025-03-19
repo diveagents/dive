@@ -243,7 +243,7 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 					}
 				}
 				edges = append(edges, &workflow.Edge{
-					To:        next.Node,
+					To:        next.Step,
 					Condition: condition,
 				})
 			}

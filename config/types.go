@@ -90,7 +90,7 @@ type Step struct {
 
 // EachBlock represents iteration configuration for a step
 type EachBlock struct {
-	Array         string `yaml:"array,omitempty" json:"array,omitempty"`
+	Array         any    `yaml:"array,omitempty" json:"array,omitempty"`
 	As            string `yaml:"as,omitempty" json:"as,omitempty"`
 	Parallel      bool   `yaml:"parallel,omitempty" json:"parallel,omitempty"`
 	MaxConcurrent int    `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
@@ -98,7 +98,7 @@ type EachBlock struct {
 
 // NextStep represents the next step in a workflow with optional conditions
 type NextStep struct {
-	Node      string `yaml:"node,omitempty" json:"node,omitempty"`
+	Step      string `yaml:"step,omitempty" json:"step,omitempty"`
 	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
 }
 

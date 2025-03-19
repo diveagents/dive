@@ -24,7 +24,7 @@ type Edge struct {
 }
 
 type EachBlock struct {
-	Array         string
+	Array         any
 	As            string
 	Parallel      bool
 	MaxConcurrent int

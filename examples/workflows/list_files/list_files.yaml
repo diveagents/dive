@@ -52,6 +52,11 @@ workflows:
     steps:
       - name: 'List Files Here'
         task: list-files
+        each:
+          array: ['.', 'examples']
+          as: 'directory'
+        next:
+          - step: 'List Files in Home'
         with:
           directory: '.'
       - name: 'List Files in Home'
