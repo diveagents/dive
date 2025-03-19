@@ -297,6 +297,82 @@ func (e *Execution) run(ctx context.Context) error {
 	return nil
 }
 
+// processTaskInputs processes and validates task inputs for a step
+func (e *Execution) processTaskInputs(ctx context.Context, currentStep *workflow.Step) (map[string]interface{}, error) {
+	task := currentStep.Task()
+	withInputs := currentStep.With()
+	taskInputs := task.Inputs()
+
+	// Determine task inputs
+	processedInputs := make(map[string]interface{})
+	for name, input := range taskInputs {
+		value, exists := withInputs[name]
+		if !exists {
+			if input.Default == nil {
+				return nil, fmt.Errorf("required input %q not provided in step %q", name, currentStep.Name())
+			}
+			value = input.Default
+		}
+		if code, ok := currentStep.Code(name); ok {
+			result, err := eval(ctx, code, map[string]any{
+				"inputs": e.inputs,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate code for input %q: %w", name, err)
+			}
+			processedInputs[name] = result
+		} else {
+			processedInputs[name] = value
+		}
+	}
+
+	// Validate no unknown inputs
+	for name := range withInputs {
+		if _, exists := taskInputs[name]; !exists {
+			return nil, fmt.Errorf("unknown input %q provided in step %q", name, currentStep.Name())
+		}
+	}
+
+	return processedInputs, nil
+}
+
+// handlePathBranching processes the next steps and creates new paths if needed
+func (e *Execution) handlePathBranching(
+	graph *workflow.Graph,
+	currentStep *workflow.Step,
+	getNextPathID func() string,
+) (*workflow.Step, []*executionPath, error) {
+	nextEdges := currentStep.Next()
+
+	// Handle multiple edges - create new paths
+	if len(nextEdges) > 1 {
+		var newPaths []*executionPath
+		for _, edge := range nextEdges {
+			nextStep, ok := graph.Get(edge.To)
+			if !ok {
+				return nil, nil, fmt.Errorf("next step not found: %s", edge.To)
+			}
+			newPaths = append(newPaths, &executionPath{
+				id:          getNextPathID(),
+				currentStep: nextStep,
+			})
+		}
+		return nil, newPaths, nil
+	}
+
+	// Handle single edge - continue on same path
+	if len(nextEdges) == 1 {
+		nextStep, ok := graph.Get(nextEdges[0].To)
+		if !ok {
+			return nil, nil, fmt.Errorf("next step not found: %s", nextEdges[0].To)
+		}
+		return nextStep, nil, nil
+	}
+
+	// No edges - path is complete
+	return nil, nil, nil
+}
+
 // Runs a single execution path in its own goroutine. Returns when the path
 // completes, fails, or splits into multiple new paths.
 func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *executionPath, updates chan<- pathUpdate) {
@@ -331,54 +407,28 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 	}()
 
 	for {
-		// Get agent for current task
 		currentStep := path.currentStep
 		task := currentStep.Task()
+
+		// Get agent for current task
 		var agent dive.Agent
 		if task.Agent() != nil {
 			agent = task.Agent()
 		} else {
 			agent = e.environment.Agents()[0]
 		}
-		withInputs := currentStep.With()
-		taskInputs := task.Inputs()
 
-		// Determine task inputs
-		processedInputs := make(map[string]interface{})
-		for name, input := range taskInputs {
-			value, exists := withInputs[name]
-			if !exists {
-				if input.Default == nil {
-					err := fmt.Errorf("required input %q not provided in step %q", name, currentStep.Name())
-					e.logger.Error("task execution failed", "error", err)
-					updates <- pathUpdate{pathID: path.id, err: err}
-					return
-				}
-				value = input.Default
-			}
-			if code, ok := currentStep.Code(name); ok {
-				result, err := eval(ctx, code, map[string]any{
-					"inputs": e.inputs,
-				})
-				if err != nil {
-					e.logger.Error("task execution failed", "error", err)
-					updates <- pathUpdate{pathID: path.id, err: err}
-					return
-				}
-				processedInputs[name] = result
-			} else {
-				processedInputs[name] = value
-			}
-		}
-
-		// Confirm there were no invalid "with" parameters provided
-		for name := range withInputs {
-			if _, exists := taskInputs[name]; !exists {
-				err := fmt.Errorf("unknown input %q provided in step %q", name, currentStep.Name())
-				e.logger.Error("task execution failed", "error", err)
-				updates <- pathUpdate{pathID: path.id, err: err}
-				return
-			}
+		// Process task inputs
+		processedInputs, err := e.processTaskInputs(ctx, currentStep)
+		if err != nil {
+			logger.Error("task input processing failed", "error", err)
+			e.updatePathState(path.id, func(state *PathState) {
+				state.Status = PathStatusFailed
+				state.Error = err
+				state.EndTime = time.Now()
+			})
+			updates <- pathUpdate{pathID: path.id, err: err}
+			return
 		}
 
 		// Update path state with current task
@@ -386,6 +436,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			state.CurrentStep = currentStep
 		})
 
+		// Execute task
 		result, err := executeTask(ctx, agent, task, processedInputs)
 		if err != nil {
 			logger.Error("task execution failed",
@@ -401,55 +452,32 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			return
 		}
 
-		nextEdges := currentStep.Next()
-		var newPaths []*executionPath
-		var pathError error
-
 		// Handle path branching
-		if len(nextEdges) > 1 {
-			// Create new paths for all edges
-			for _, edge := range nextEdges {
-				nextStep, ok := graph.Get(edge.To)
-				if !ok {
-					pathError = fmt.Errorf("next step not found: %s", edge.To)
-					logger.Error("next step not found", "step", edge.To)
-					continue
-				}
-				newPaths = append(newPaths, &executionPath{
-					id:          getNextPathID(),
-					currentStep: nextStep,
-				})
-			}
-		} else if len(nextEdges) == 1 {
-			// Continue on same path
-			nextStep, ok := graph.Get(nextEdges[0].To)
-			if !ok {
-				pathError = fmt.Errorf("next step not found: %s", nextEdges[0].To)
-				logger.Error("next step not found", "step", nextEdges[0].To)
-			} else {
-				updates <- pathUpdate{
-					pathID:     path.id,
-					stepName:   currentStep.Name(),
-					stepOutput: result.Content,
-					newPaths:   nil,
-					isDone:     false, // Explicitly indicate path continues
-				}
-				path.currentStep = nextStep
-				continue
-			}
-		}
-
-		if pathError != nil {
+		nextStep, newPaths, err := e.handlePathBranching(graph, currentStep, getNextPathID)
+		if err != nil {
 			e.updatePathState(path.id, func(state *PathState) {
 				state.Status = PathStatusFailed
-				state.Error = pathError
+				state.Error = err
 				state.EndTime = time.Now()
 			})
-			updates <- pathUpdate{pathID: path.id, err: pathError}
+			updates <- pathUpdate{pathID: path.id, err: err}
 			return
 		}
 
-		// Send final update for this path
+		// If we have a next step, continue on this path
+		if nextStep != nil {
+			updates <- pathUpdate{
+				pathID:     path.id,
+				stepName:   currentStep.Name(),
+				stepOutput: result.Content,
+				newPaths:   nil,
+				isDone:     false,
+			}
+			path.currentStep = nextStep
+			continue
+		}
+
+		// Otherwise, send final update and end this path
 		updates <- pathUpdate{
 			pathID:     path.id,
 			stepName:   currentStep.Name(),
@@ -458,15 +486,11 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			isDone:     true,
 		}
 
-		// If this path continues (single next edge), loop continues
-		// Otherwise (no edges or multiple edges), this goroutine ends
-		if len(nextEdges) != 1 {
-			e.updatePathState(path.id, func(state *PathState) {
-				state.Status = PathStatusCompleted
-				state.EndTime = time.Now()
-			})
-			return
-		}
+		e.updatePathState(path.id, func(state *PathState) {
+			state.Status = PathStatusCompleted
+			state.EndTime = time.Now()
+		})
+		return
 	}
 }
 
