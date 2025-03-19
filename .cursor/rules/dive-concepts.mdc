@@ -3,90 +3,88 @@ description: Architectural and multiple package awareness in Dive
 globs: 
 alwaysApply: true
 ---
-# Dive Core Concepts
-
-## Project
-A project is a collection of modules, configurations, and resources that define what you want to accomplish. Projects typically:
-- Live in version control
-- Can be deployed to multiple environments
-- Define all resources needed to run
-- Contain configuration for different environments
+# Dive Concepts
 
 ## Environment
-An environment is a running instance of a project. It contains:
-- Active module instances
-- Running executions
-- Current state of all resources
-- Environment-specific configuration
 
-Common environments include Production, Staging, and Development.
+An environment is a running Dive configuration containing:
 
-## Module
-A self-contained, reusable collection of Dive resources that can be instantiated and run. Similar to Terraform modules, a Dive module:
-- Has defined inputs and outputs
-- Contains one or more workflows and their associated resources
-- Can be composed with other modules
-- Can be versioned and shared
-- Defines its own resources (documents, tables, agents)
+- One or more AI agents
+- Task definitions that define units of work
+- Workflow definitions that define steps to run
+- Environment configuration
+- Triggers that cause workflows to start executing
+- When a workflow is triggered it creates an "execution"
 
 ## Workflow
-- A template for a repeatable process
+
+A Workflow is a template for a repeatable process:
+
 - Has defined inputs and outputs
 - Can be triggered manually or automatically
 - Can invoke other workflows (supporting composition)
 - Each workflow execution is tracked independently
+- Consists of a directed graph that defines execution steps
 
 ## Task
-- An individual unit of work within a workflow
-- Defines a specific action or operation
-- Can be executed by agents
+
+A Task defines a reusable unit of work:
+
+- May be run one or more times in a Workflow
+- Defines a specific action
+- Some types are executed by agents
+- Other types may execute scripts or take other non-agent action
 - Has defined inputs and outputs
-- Can be synchronous or asynchronous
+- Examples: "research topic X", "summarize webpage", etc.
 
 ## Execution
-- Represents a single run of a workflow
-- Has a unique identifier
-- Maintains state and history
-- Tracks task completions
-- Records inputs and outputs
-- Can spawn sub-executions for nested workflows
+
+An execution represents a single run of a Workflow:
+
+- Maintains state and history for each step
+- May have multiple active execution paths
+- May be long-running
+- Executes the Workflow's graph of steps
 
 ## Agent
-- AI agents that perform tasks within workflows
-- Defined within modules
-- Have defined capabilities and roles
-- Maintain their own memory
-- Can access module resources
-- Can be specialized for specific types of tasks
 
-## Resources
+An Agent is an AI entity that takes action:
 
-### Documents
-- Store structured and unstructured data
-- Defined within modules
-- Can be inputs to or outputs from workflows
-- Versioned and trackable
+- May be assigned tasks to help with Workflows
+- Has a defined name, description, and instructions that together define its role
+- May have "memory" so that it can recall what it previously worked on
+- May be a "supervisor", which allows it to assign work to other agents
 
-### Tables
-- Structured data storage
-- Defined within modules
-- Queryable by agents and workflows
-- Support CRUD operations
+## Documents
 
-### Memory
-- Persistent context for specific agents
-- Scoped to individual agents
+- Store structured or unstructured data
+- May be read or written by Agents and Tasks
+
+## Tables
+
+- Structured data storage for Agents
+- Queryable by Agents and Tasks within Workflows
+
+## Memory
+
+- Persistent context for an Agent
 - Supports agent learning and adaptation
 - Can be cleared or preserved
 
-### Triggers
-- Event-based workflow initiators
-- Can be time-based (schedules)
-- Can respond to external events
-- Can watch for resource changes
+## Triggers
 
-### Integrations
-- Connections to external systems
-- Both incoming and outgoing
-- Can trigger workflows
-- Can be used by tasks
+- Event-based workflow initiators
+- Can fire based on a schedule or external events
+- Creates a Workflow Execution when it fires
+
+## Integrations
+
+- Incoming and outgoing connections to external systems
+- Can be part of a Task, Trigger, or Tool
+
+## Tools
+
+- Used by Agents to take action in the world
+- May be read-only (for querying) or take some active action
+
+

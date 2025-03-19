@@ -1,166 +1,37 @@
 ---
-description: Designing interfaces between Dive packages and objects
+description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
-# Dive Core Interfaces and Packages
+# Dive Interfaces and Packages
 
 ## Core Packages
 
-### Main Package (`github.com/getstingrai/dive`)
-The main package defines the core interfaces and types used throughout Dive:
+### Dive Package (`github.com/getstingrai/dive`)
 
-- `Workflow` - Template for repeatable processes
+The `dive` package defines the core Go interfaces used throughout Dive:
+
 - `Task` - Unit of work that can be executed
-- `Agent` - AI agent that performs tasks
-- `Environment` - Running instance of a project
-- `OutputFormat` - Format for task results (text, markdown, json)
-- `TaskStatus` - Status of a task (queued, active, paused, completed, etc.)
+- `Agent` - AI agent that works on tasks
+- `Environment` - Agents run within an Environment
 
 ### LLM Package (`github.com/getstingrai/dive/llm`)
-Handles LLM interactions and tool definitions:
 
-- `LLM` - Interface for LLM providers
-- `StreamingLLM` - Interface for streaming LLM responses
-- `Tool` - Interface for LLM tools
-- `ToolDefinition` - Definition of a tool's parameters and behavior
-- `Message` - LLM message structure
-- `Response` - LLM response structure
+Defines the types and Go interfaces implemented by different large language model providers:
 
-### Document Package (`github.com/getstingrai/dive/document`)
-Manages document storage and retrieval:
-
-- `Repository` - Interface for document storage
-- `Document` - Interface for document content
-- `ListDocumentInput` - Search criteria for documents
-- `ListDocumentOutput` - Results of document listing
-
-### Memory Package (`github.com/getstingrai/dive/memory`)
-Handles agent memory and context:
-
-- `Memory` - Interface for memory operations
-- `VectorStorage` - Interface for vector storage
-- `Embedder` - Interface for text embedding
-- `Message` - Memory message structure
-- `Thread` - Conversation thread structure
-
-### Events Package (`github.com/getstingrai/dive/events`)
-Manages event streaming:
-
-- `Event` - Event structure
-- `Stream` - Interface for receiving events
-- `Publisher` - Interface for sending events
-- `Handler` - Interface for handling events
+- `LLM` - Interface used to generate responses
+- `StreamingLLM` - Interface used to stream responses
+- `StreamIterator` - Interface for iterating over events in a stream
 
 ### Workflow Package (`github.com/getstingrai/dive/workflow`)
-Implements workflow execution:
 
-- `Workflow` - Workflow implementation
-- `Execution` - Single workflow run
-- `Runner` - Manages workflow executions
-- `Store` - Interface for execution persistence
-- `MetricsCollector` - Interface for execution metrics
+Workflows define a directed graph of steps that are executed:
 
-### Graph Package (`github.com/getstingrai/dive/graph`)
-Handles task dependency management:
-
-- `Node` - Interface for graph nodes
-- `Graph` - Graph implementation for task ordering
+- `Workflow` - Workflow implementation (a struct)
+- `Step` - Unit of work in a Workflow (a struct, points to a Task)
 
 ### Retry Package (`github.com/getstingrai/dive/retry`)
+
 Handles error recovery:
 
 - `RecoverableError` - Interface for recoverable errors
-
-## Key Interfaces
-
-### Agent Interfaces
-```go
-type Agent interface {
-    Name() string
-    Description() string
-    Instructions() string
-    IsSupervisor() bool
-    Subordinates() []string
-    Work(ctx context.Context, task Task) (events.Stream, error)
-}
-
-type RunnableAgent interface {
-    Agent
-    Start(ctx context.Context) error
-    Stop(ctx context.Context) error
-    IsRunning() bool
-}
-
-type EventHandlerAgent interface {
-    Agent
-    AcceptedEvents() []string
-    HandleEvent(ctx context.Context, event *events.Event) error
-}
-```
-
-### Workflow Interface
-```go
-type Workflow interface {
-    Name() string
-    Description() string
-    Tasks() []Task
-    Inputs() map[string]WorkflowInput
-    Outputs() map[string]WorkflowOutput
-    Validate() error
-}
-```
-
-### Task Interface
-```go
-type Task interface {
-    Name() string
-    Description() string
-    ExpectedOutput() string
-    Dependencies() []string
-    AssignedAgent() Agent
-    Validate() error
-    Prompt(opts TaskPromptOptions) string
-}
-```
-
-### Environment Interface
-```go
-type Environment interface {
-    Name() string
-    Description() string
-    Repository() document.Repository
-    Agents() []Agent
-    GetAgent(name string) (Agent, error)
-    RegisterAgent(agent Agent) error
-    Workflows() []Workflow
-    GetWorkflow(id string) (Workflow, error)
-    StartWorkflow(ctx context.Context, workflow Workflow) error
-    StopWorkflow(ctx context.Context, id string) error
-}
-```
-
-### Tool Interface
-```go
-type Tool interface {
-    Definition() *ToolDefinition
-    Call(ctx context.Context, input string) (string, error)
-    ShouldReturnResult() bool
-}
-```
-
-## Configuration
-
-Dive supports configuration through multiple formats:
-- JSON
-- YAML
-- HCL (HashiCorp Configuration Language)
-
-Configuration is handled by the `teamconf` package which provides:
-- `TeamDefinition` - Serializable representation of a team
-- `AgentConfig` - Agent configuration
-- `Task` - Task configuration
-- `Document` - Document configuration
-- `ToolConfig` - Tool configuration
-
-
