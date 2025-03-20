@@ -24,7 +24,6 @@ func TestAgent(t *testing.T) {
 		Instructions: "",
 		IsSupervisor: false,
 		LLM:          anthropic.New(),
-		LogLevel:     "info",
 	})
 
 	err := agent.Start(ctx)
@@ -112,7 +111,6 @@ func TestAgentTask(t *testing.T) {
 		Name:        "Poet",
 		Description: "You're a poet that loves writing limericks",
 		LLM:         anthropic.New(),
-		LogLevel:    "debug",
 		Logger:      logger,
 	})
 
@@ -145,60 +143,6 @@ func TestAgentTask(t *testing.T) {
 	require.Greater(t, matches, 0, "poem should contain at least one cat-related word")
 }
 
-// func TestAgentSystemPromptWithoutTeam(t *testing.T) {
-// 	tests := []struct {
-// 		name     string
-// 		options  AgentOptions
-// 		expected string
-// 	}{
-// 		{
-// 			name: "basic agent",
-// 			options: AgentOptions{
-// 				Name:          "TestAgent",
-// 				Description:   "You are a research assistant.",
-// 				Instructions:  "You are extremely thorough and detail-oriented.",
-// 				IsSupervisor:  false,
-// 				LLM:           anthropic.New(),
-// 				LogLevel:      "info",
-// 				DateAwareness: ptr(false),
-// 			},
-// 			expected: "fixtures/agent-system-prompt-1.txt",
-// 		},
-// 		{
-// 			name: "supervisor agent",
-// 			options: AgentOptions{
-// 				Name:          "Lead Researcher",
-// 				Description:   "You supervise a research team.",
-// 				Instructions:  "You are kind and helpful.",
-// 				IsSupervisor:  true,
-// 				LLM:           anthropic.New(),
-// 				LogLevel:      "info",
-// 				DateAwareness: ptr(false),
-// 			},
-// 			expected: "fixtures/agent-system-prompt-2.txt",
-// 		},
-// 	}
-
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			// Create agent with test options
-// 			agent := NewAgent(tt.options)
-
-// 			// Get the system prompt
-// 			systemPrompt, err := agent.getSystemPromptForMode("task")
-// 			require.NoError(t, err)
-
-// 			fmt.Println(systemPrompt)
-
-// 			// Read expected prompt from file
-// 			expected, err := os.ReadFile(tt.expected)
-// 			require.NoError(t, err)
-
-// 			require.Equal(t, string(expected), systemPrompt)
-// 		})
-// 	}
-// }
-
 func TestAgentChatSystemPrompt(t *testing.T) {
 	agent := NewAgent(AgentOptions{
 		Name:         "TestAgent",
@@ -206,7 +150,6 @@ func TestAgentChatSystemPrompt(t *testing.T) {
 		Instructions: "You are extremely thorough and detail-oriented.",
 		IsSupervisor: false,
 		LLM:          anthropic.New(),
-		LogLevel:     "info",
 	})
 
 	// Get the chat system prompt

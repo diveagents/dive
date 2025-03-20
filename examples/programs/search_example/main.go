@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/agent"
@@ -16,6 +17,14 @@ import (
 )
 
 func main() {
+
+	var logLevel string
+	if os.Getenv("LOG_LEVEL") != "" {
+		logLevel = os.Getenv("LOG_LEVEL")
+	} else {
+		logLevel = "info"
+	}
+
 	ctx := context.Background()
 
 	// You'll need to have these set:
@@ -32,8 +41,7 @@ func main() {
 		Description:  "Research Assistant",
 		Instructions: "Use Google to research assigned topics",
 		LLM:          anthropic.New(),
-		LogLevel:     "debug",
-		Logger:       slogger.New(slogger.LevelDebug),
+		Logger:       slogger.New(slogger.LevelFromString(logLevel)),
 		Tools:        []llm.Tool{toolkit.NewGoogleSearch(googleClient)},
 	})
 	if err := researcher.Start(ctx); err != nil {

@@ -51,7 +51,6 @@ type AgentOptions struct {
 	StepTimeout        time.Duration
 	ChatTimeout        time.Duration
 	CacheControl       string
-	LogLevel           string
 	Hooks              llm.Hooks
 	Logger             slogger.Logger
 	ToolIterationLimit int
@@ -85,7 +84,6 @@ type Agent struct {
 	recentTasks        []*taskState
 	activeTask         *taskState
 	ticker             *time.Ticker
-	logLevel           string
 	hooks              llm.Hooks
 	logger             slogger.Logger
 	toolIterationLimit int
@@ -153,7 +151,6 @@ func NewAgent(opts AgentOptions) *Agent {
 		hooks:              opts.Hooks,
 		mailbox:            make(chan interface{}, 16),
 		logger:             opts.Logger,
-		logLevel:           strings.ToLower(opts.LogLevel),
 		threads:            make(map[string]*chatThread),
 		dateAwareness:      opts.DateAwareness,
 	}
@@ -658,7 +655,7 @@ func (a *Agent) generate(
 		response = currentResponse
 		responseMessage := response.Message()
 
-		a.logger.Info("llm response",
+		a.logger.Debug("llm response",
 			"usage_input_tokens", response.Usage().InputTokens,
 			"usage_output_tokens", response.Usage().OutputTokens,
 			"cache_creation_input_tokens", response.Usage().CacheCreationInputTokens,
@@ -678,11 +675,6 @@ func (a *Agent) generate(
 		// Execute all requested tool uses and accumulate results
 		shouldReturnResult := false
 		toolResults := make([]*llm.ToolResult, len(response.ToolCalls()))
-
-		if a.logger != nil {
-			a.logger.Debug("processing tool calls",
-				"tool_call_count", len(response.ToolCalls()))
-		}
 
 		for i, toolCall := range response.ToolCalls() {
 			tool, ok := a.toolsByName[toolCall.Name]
@@ -720,9 +712,6 @@ func (a *Agent) generate(
 			for _, result := range toolResults {
 				toolResultIDs = append(toolResultIDs, result.ID)
 			}
-			a.logger.Debug("adding tool results message",
-				"tool_result_count", len(toolResults),
-				"tool_result_ids", toolResultIDs)
 		}
 
 		// Add instructions to the message to not use any more tools if we have
@@ -808,7 +797,7 @@ func (a *Agent) loadTaskDocuments(ctx context.Context, task dive.Task) ([]docume
 func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 	task := state.Task
 
-	var timeout time.Duration // := task.Timeout()
+	timeout := task.Timeout()
 	if timeout == 0 {
 		timeout = a.taskTimeout
 	}
@@ -864,11 +853,6 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 			messages = append(messages, llm.NewUserMessage(finishStepNowPrompt))
 		}
 	}
-
-	logger.Info("handling task",
-		"status", state.Status,
-		"truncated_description", TruncateText(prompt, 10),
-		"message_count", len(messages))
 
 	// Run the LLM generation and any resulting tool calls
 	response, updatedMessages, err := a.generate(
@@ -931,7 +915,7 @@ func (a *Agent) doSomeWork() {
 			Type:   "task.activated",
 			Origin: a.eventOrigin(),
 		})
-		a.logger.Info("task activated",
+		a.logger.Debug("task activated",
 			"agent", a.name,
 			"task", a.activeTask.Task.Name(),
 			"description", a.activeTask.Task.Description(),
@@ -939,12 +923,9 @@ func (a *Agent) doSomeWork() {
 	}
 
 	if a.activeTask == nil {
-		a.logger.Debug("no active task", "agent", a.name)
 		return // Nothing to do!
 	}
 	stepName := a.activeTask.Task.Name()
-
-	a.logger.Info("handleTask to call...")
 
 	// Make progress on the active task
 	err := a.handleTask(context.Background(), a.activeTask)

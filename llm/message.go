@@ -43,6 +43,7 @@ type Content struct {
 
 // Message passed to an LLM for generation.
 type Message struct {
+	ID      string     `json:"id,omitempty"`
 	Role    Role       `json:"role"`
 	Content []*Content `json:"content"`
 }

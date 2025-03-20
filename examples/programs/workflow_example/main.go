@@ -97,7 +97,6 @@ func main() {
 		Subordinates: []string{"Research Assistant"},
 		CacheControl: "ephemeral",
 		LLM:          provider,
-		LogLevel:     logLevel,
 		Logger:       logger,
 	})
 
@@ -107,7 +106,6 @@ func main() {
 		CacheControl: "ephemeral",
 		LLM:          provider,
 		Tools:        theTools,
-		LogLevel:     logLevel,
 		Logger:       logger,
 	})
 

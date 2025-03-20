@@ -2,6 +2,7 @@ package dive
 
 import (
 	"context"
+	"time"
 
 	"github.com/getstingrai/dive/llm"
 )
@@ -58,6 +59,9 @@ type Task interface {
 
 	// Description returns the description of the task
 	Description() string
+
+	// Timeout returns the timeout for the task
+	Timeout() time.Duration
 
 	// Agent returns the agent assigned to this task, if any
 	Agent() Agent

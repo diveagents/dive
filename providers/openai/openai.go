@@ -560,6 +560,22 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 	choice := event.Choices[0]
 	var events []*llm.Event
 
+	// Emit message start event if this is the first chunk
+	if s.responseID != "" && s.currentEvent == nil {
+		events = append(events, &llm.Event{
+			Type: llm.EventMessageStart,
+			Message: &llm.Message{
+				ID:      s.responseID,
+				Role:    llm.Assistant,
+				Content: []*llm.Content{},
+			},
+			Usage: &llm.Usage{
+				InputTokens:  s.usage.PromptTokens,
+				OutputTokens: s.usage.CompletionTokens,
+			},
+		})
+	}
+
 	if choice.Delta.Reasoning != "" {
 		// TODO: handle accumulated reasoning
 	}
@@ -577,6 +593,11 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 		index := choice.Index
 		if _, exists := s.contentBlocks[index]; !exists {
 			s.contentBlocks[index] = &ContentBlockAccumulator{Type: "text", Text: ""}
+			events = append(events, &llm.Event{
+				Type:         llm.EventContentBlockStart,
+				Index:        index,
+				ContentBlock: &llm.ContentBlock{Type: "text", Text: ""},
+			})
 		}
 		// Accumulate the text
 		block := s.contentBlocks[index]
@@ -596,6 +617,15 @@ func (s *StreamIterator) next() ([]*llm.Event, error) {
 			index := toolCallDelta.Index
 			if _, exists := s.toolCalls[index]; !exists {
 				s.toolCalls[index] = &ToolCallAccumulator{Type: "function"}
+				events = append(events, &llm.Event{
+					Type:  llm.EventContentBlockStart,
+					Index: index,
+					ContentBlock: &llm.ContentBlock{
+						ID:   toolCallDelta.ID,
+						Name: toolCallDelta.Function.Name,
+						Type: "tool_use",
+					},
+				})
 			}
 			toolCall := s.toolCalls[index]
 			if toolCallDelta.ID != "" {

@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/fatih/color"
+	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/agent"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
@@ -18,6 +20,8 @@ import (
 	"github.com/getstingrai/dive/toolkit"
 	"github.com/getstingrai/dive/toolkit/google"
 )
+
+var boldStyle = color.New(color.Bold)
 
 func main() {
 	var verbose bool
@@ -56,7 +60,6 @@ to answer non-medical questions. Use maximum medical jargon.`,
 		LLM:          provider,
 		Tools:        []llm.Tool{toolkit.NewGoogleSearch(googleClient)},
 		CacheControl: "ephemeral",
-		LogLevel:     "info",
 		Logger:       logger,
 	})
 
@@ -67,7 +70,7 @@ to answer non-medical questions. Use maximum medical jargon.`,
 
 	for {
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Enter a chat message about a medical topic: ")
+		fmt.Print(boldStyle.Sprint("\nEnter a chat message about a medical topic: "))
 		message, err := reader.ReadString('\n')
 		if err != nil {
 			log.Fatal(err)
@@ -80,7 +83,7 @@ to answer non-medical questions. Use maximum medical jargon.`,
 			continue
 		}
 
-		iterator, err := a.Stream(ctx, llm.NewUserMessage(message))
+		iterator, err := a.Stream(ctx, llm.NewUserMessage(message), dive.WithThreadID("1"))
 		if err != nil {
 			log.Fatal(err)
 		}

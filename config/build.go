@@ -137,7 +137,6 @@ func buildAgent(agentDef AgentConfig, globalConfig Config, toolsMap map[string]l
 		Tools:              agentTools,
 		ChatTimeout:        chatTimeout,
 		CacheControl:       cacheControl,
-		LogLevel:           logLevel,
 		Logger:             logger,
 		ToolIterationLimit: agentDef.ToolIterationLimit,
 	})

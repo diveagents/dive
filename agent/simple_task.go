@@ -2,6 +2,7 @@ package agent
 
 import (
 	"strings"
+	"time"
 
 	"github.com/getstingrai/dive"
 )
@@ -16,6 +17,7 @@ type SimpleTask struct {
 	assignedAgent dive.Agent
 	dependencies  []string
 	prompt        string
+	timeout       time.Duration
 }
 
 func (t *SimpleTask) Name() string {
@@ -24,6 +26,10 @@ func (t *SimpleTask) Name() string {
 
 func (t *SimpleTask) Description() string {
 	return t.description
+}
+
+func (t *SimpleTask) Timeout() time.Duration {
+	return t.timeout
 }
 
 func (t *SimpleTask) Inputs() map[string]dive.Input {

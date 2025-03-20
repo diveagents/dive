@@ -69,7 +69,6 @@ func main() {
 		CacheControl: "ephemeral",
 		LLM:          provider,
 		Tools:        theTools,
-		LogLevel:     "debug",
 		Logger:       slogger.New(slogger.LevelDebug),
 	})
 

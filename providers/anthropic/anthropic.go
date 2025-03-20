@@ -576,6 +576,21 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 		s.responseID = event.Message.ID
 		s.responseModel = event.Message.Model
 		s.usage = event.Message.Usage
+		events = append(events, &llm.Event{
+			Type:  llm.EventMessageStart,
+			Index: event.Index,
+			Message: &llm.Message{
+				ID:      event.Message.ID,
+				Role:    llm.Assistant,
+				Content: []*llm.Content{},
+			},
+			Usage: &llm.Usage{
+				InputTokens:              event.Message.Usage.InputTokens,
+				OutputTokens:             event.Message.Usage.OutputTokens,
+				CacheCreationInputTokens: event.Message.Usage.CacheCreationInputTokens,
+				CacheReadInputTokens:     event.Message.Usage.CacheReadInputTokens,
+			},
+		})
 
 	case llm.EventMessageStop:
 		// noop
@@ -591,6 +606,16 @@ func (s *StreamIterator) readNext() ([]*llm.Event, error) {
 				Name: event.ContentBlock.Name,
 			}
 		}
+		events = append(events, &llm.Event{
+			Type:  llm.EventContentBlockStart,
+			Index: event.Index,
+			ContentBlock: &llm.ContentBlock{
+				ID:   event.ContentBlock.ID,
+				Name: event.ContentBlock.Name,
+				Type: event.ContentBlock.Type,
+				Text: event.ContentBlock.Text,
+			},
+		})
 
 	case llm.EventContentBlockDelta:
 		block := s.contentBlocks[event.Index]
