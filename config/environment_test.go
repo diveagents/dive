@@ -100,7 +100,7 @@ func TestEnvironment_Build(t *testing.T) {
 						},
 						Next: []NextStep{
 							{
-								Node: "write-step",
+								Step: "write-step",
 							},
 						},
 					},

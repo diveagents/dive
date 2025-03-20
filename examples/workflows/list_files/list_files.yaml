@@ -53,17 +53,5 @@ workflows:
       - name: 'List Files Here'
         task: list-files
         each:
-          array: ['.', 'examples']
+          array: ['./workflow', './retry']
           as: 'directory'
-        next:
-          - step: 'List Files in Home'
-        with:
-          directory: '.'
-      - name: 'List Files in Home'
-        task: list-files
-        with:
-          directory: '~'
-      - name: 'Search Web'
-        task: search
-        with:
-          query: 'What is the capital of France?'

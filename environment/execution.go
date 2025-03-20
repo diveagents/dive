@@ -3,6 +3,8 @@ package environment
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/risor-io/risor"
 	"github.com/risor-io/risor/compiler"
 	"github.com/risor-io/risor/object"
+	"github.com/risor-io/risor/parser"
 )
 
 // PathStatus represents the current state of an execution path
@@ -298,15 +301,27 @@ func (e *Execution) run(ctx context.Context) error {
 }
 
 // processTaskInputs processes and validates task inputs for a step
-func (e *Execution) processTaskInputs(ctx context.Context, currentStep *workflow.Step) (map[string]interface{}, error) {
+func (e *Execution) processTaskInputs(
+	ctx context.Context,
+	currentStep *workflow.Step,
+	extras map[string]any,
+) (map[string]interface{}, error) {
 	task := currentStep.Task()
 	withInputs := currentStep.With()
 	taskInputs := task.Inputs()
 
+	withCopy := make(map[string]any)
+	for k, v := range withInputs {
+		withCopy[k] = v
+	}
+	for k, v := range extras {
+		withCopy[k] = v
+	}
+
 	// Determine task inputs
 	processedInputs := make(map[string]interface{})
 	for name, input := range taskInputs {
-		value, exists := withInputs[name]
+		value, exists := withCopy[name]
 		if !exists {
 			if input.Default == nil {
 				return nil, fmt.Errorf("required input %q not provided in step %q", name, currentStep.Name())
@@ -373,6 +388,142 @@ func (e *Execution) handlePathBranching(
 	return nil, nil, nil
 }
 
+// handleEachBlock processes an each block and returns the combined result
+func (e *Execution) handleEachBlock(
+	ctx context.Context,
+	agent dive.Agent,
+	step *workflow.Step,
+	each *workflow.EachBlock,
+	logger slogger.Logger,
+) (string, error) {
+	items, err := e.resolveEachItems(ctx, each, logger)
+	if err != nil {
+		return "", err
+	}
+	e.logger.Info("each block items",
+		"items", items,
+		"count", len(items),
+		"step", step.Name(),
+	)
+	// Process each item sequentially for now
+	var results []string
+	for i, item := range items {
+		itemName := fmt.Sprintf("%s-%d", step.Name(), i+1)
+		e.logger.Info("processing item",
+			"item_name", itemName,
+			"item", item,
+			"as", each.As,
+		)
+		result, err := e.processEachItem(ctx, step, agent, itemName, item, each.As)
+		if err != nil {
+			return "", fmt.Errorf("failed to process item: %w", err)
+		}
+		results = append(results, result)
+	}
+	return strings.Join(results, "\n\n"), nil
+}
+
+// resolveEachItems resolves the array of items from either a direct array or a risor expression
+func (e *Execution) resolveEachItems(ctx context.Context, each *workflow.EachBlock, logger slogger.Logger) ([]string, error) {
+	// Handle array of strings directly
+	if strArray, ok := each.Array.([]string); ok {
+		return strArray, nil
+	}
+
+	// Handle interface array by converting to strings
+	if ifaceArray, ok := each.Array.([]interface{}); ok {
+		strArray := make([]string, len(ifaceArray))
+		for i, v := range ifaceArray {
+			switch val := v.(type) {
+			case string:
+				strArray[i] = val
+			case fmt.Stringer:
+				strArray[i] = val.String()
+			default:
+				strArray[i] = fmt.Sprintf("%v", val)
+			}
+		}
+		return strArray, nil
+	}
+
+	// Handle risor expression
+	if codeStr, ok := each.Array.(string); ok && strings.HasPrefix(codeStr, "$(") && strings.HasSuffix(codeStr, ")") {
+		return e.evaluateRisorExpression(ctx, codeStr, logger)
+	}
+
+	return nil, fmt.Errorf("each array must be []string, []interface{}, or risor expression, got %T", each.Array)
+}
+
+// evaluateRisorExpression evaluates a risor expression and returns the result as a string array
+func (e *Execution) evaluateRisorExpression(ctx context.Context, codeStr string, logger slogger.Logger) ([]string, error) {
+	code := strings.TrimPrefix(codeStr, "$(")
+	code = strings.TrimSuffix(code, ")")
+
+	compiledCode, err := compileScript(ctx, code, map[string]any{
+		"inputs": e.inputs,
+	})
+	if err != nil {
+		logger.Error("failed to compile each array expression", "error", err)
+		return nil, fmt.Errorf("failed to compile expression: %w", err)
+	}
+
+	result, err := eval(ctx, compiledCode, map[string]any{
+		"inputs": e.inputs,
+	})
+	if err != nil {
+		logger.Error("failed to evaluate each array expression", "error", err)
+		return nil, fmt.Errorf("failed to evaluate expression: %w", err)
+	}
+
+	var resultItems []string
+	switch v := result.(type) {
+	case *object.List:
+		for _, item := range v.Value() {
+			resultItems = append(resultItems, item.Inspect())
+		}
+	case *object.String:
+		resultItems = []string{v.Value()}
+	default:
+		return nil, fmt.Errorf("expression must evaluate to string or []string, got %T", result)
+	}
+	return resultItems, nil
+}
+
+// handleStepExecution executes a single step and returns the result
+func (e *Execution) handleStepExecution(ctx context.Context, path *executionPath, agent dive.Agent, logger slogger.Logger) (*dive.TaskResult, error) {
+	processedInputs, err := e.processTaskInputs(ctx, path.currentStep, map[string]any{})
+	if err != nil {
+		logger.Error("task input processing failed", "error", err)
+		return nil, err
+	}
+
+	// Update path state with current task
+	e.updatePathState(path.id, func(state *PathState) {
+		state.CurrentStep = path.currentStep
+	})
+
+	// Execute task
+	result, err := executeTask(ctx, agent, path.currentStep.Task(), processedInputs)
+	if err != nil {
+		logger.Error("task execution failed",
+			"task", path.currentStep.Task().Name(),
+			"error", err,
+		)
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// updatePathError updates the path state with an error
+func (e *Execution) updatePathError(pathID string, err error) {
+	e.updatePathState(pathID, func(state *PathState) {
+		state.Status = PathStatusFailed
+		state.Error = err
+		state.EndTime = time.Now()
+	})
+}
+
 // Runs a single execution path in its own goroutine. Returns when the path
 // completes, fails, or splits into multiple new paths.
 func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *executionPath, updates chan<- pathUpdate) {
@@ -397,57 +548,38 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 	defer func() {
 		if r := recover(); r != nil {
 			err := fmt.Errorf("path %s panicked: %v", path.id, r)
-			e.updatePathState(path.id, func(state *PathState) {
-				state.Status = PathStatusFailed
-				state.Error = err
-				state.EndTime = time.Now()
-			})
+			e.updatePathError(path.id, err)
 			updates <- pathUpdate{pathID: path.id, err: err}
 		}
 	}()
 
 	for {
 		currentStep := path.currentStep
-		task := currentStep.Task()
 
 		// Get agent for current task
 		var agent dive.Agent
-		if task.Agent() != nil {
-			agent = task.Agent()
+		if currentStep.Task().Agent() != nil {
+			agent = currentStep.Task().Agent()
 		} else {
 			agent = e.environment.Agents()[0]
 		}
 
-		// Process task inputs
-		processedInputs, err := e.processTaskInputs(ctx, currentStep)
-		if err != nil {
-			logger.Error("task input processing failed", "error", err)
-			e.updatePathState(path.id, func(state *PathState) {
-				state.Status = PathStatusFailed
-				state.Error = err
-				state.EndTime = time.Now()
-			})
-			updates <- pathUpdate{pathID: path.id, err: err}
-			return
+		var stepOutput string
+		var err error
+
+		// Handle each block if present
+		if each := currentStep.Each(); each != nil {
+			stepOutput, err = e.handleEachBlock(ctx, agent, currentStep, each, logger)
+		} else {
+			var result *dive.TaskResult
+			result, err = e.handleStepExecution(ctx, path, agent, logger)
+			if result != nil {
+				stepOutput = result.Content
+			}
 		}
 
-		// Update path state with current task
-		e.updatePathState(path.id, func(state *PathState) {
-			state.CurrentStep = currentStep
-		})
-
-		// Execute task
-		result, err := executeTask(ctx, agent, task, processedInputs)
 		if err != nil {
-			logger.Error("task execution failed",
-				"task", task.Name(),
-				"error", err,
-			)
-			e.updatePathState(path.id, func(state *PathState) {
-				state.Status = PathStatusFailed
-				state.Error = err
-				state.EndTime = time.Now()
-			})
+			e.updatePathError(path.id, err)
 			updates <- pathUpdate{pathID: path.id, err: err}
 			return
 		}
@@ -455,21 +587,16 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		// Handle path branching
 		nextStep, newPaths, err := e.handlePathBranching(graph, currentStep, getNextPathID)
 		if err != nil {
-			e.updatePathState(path.id, func(state *PathState) {
-				state.Status = PathStatusFailed
-				state.Error = err
-				state.EndTime = time.Now()
-			})
+			e.updatePathError(path.id, err)
 			updates <- pathUpdate{pathID: path.id, err: err}
 			return
 		}
 
-		// If we have a next step, continue on this path
 		if nextStep != nil {
 			updates <- pathUpdate{
 				pathID:     path.id,
 				stepName:   currentStep.Name(),
-				stepOutput: result.Content,
+				stepOutput: stepOutput,
 				newPaths:   nil,
 				isDone:     false,
 			}
@@ -477,11 +604,11 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 			continue
 		}
 
-		// Otherwise, send final update and end this path
+		// Path is complete
 		updates <- pathUpdate{
 			pathID:     path.id,
 			stepName:   currentStep.Name(),
-			stepOutput: result.Content,
+			stepOutput: stepOutput,
 			newPaths:   newPaths,
 			isDone:     true,
 		}
@@ -492,6 +619,53 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		})
 		return
 	}
+}
+
+// processEachItem processes a single item in an each block
+func (e *Execution) processEachItem(ctx context.Context, step *workflow.Step, agent dive.Agent, itemName, value, as string) (string, error) {
+	// Create inputs with the item value
+	extras := map[string]any{}
+	if as != "" {
+		// Add the item value to the inputs using the 'as' name
+		extras[as] = value
+	}
+	processedInputs, err := e.processTaskInputs(ctx, step, extras)
+	if err != nil {
+		return "", fmt.Errorf("failed to process task inputs: %w", err)
+	}
+
+	// Create a new task with a unique name for this iteration
+	originalTask := step.Task()
+	uniqueTask := workflow.NewTask(workflow.TaskOptions{
+		Name:        itemName,
+		Description: originalTask.Description(),
+		Inputs:      originalTask.Inputs(),
+		Outputs:     originalTask.Outputs(),
+		Agent:       originalTask.Agent(),
+	})
+
+	// Execute task with the unique name
+	result, err := executeTask(ctx, agent, uniqueTask, processedInputs)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute task: %w", err)
+	}
+	return result.Content, nil
+}
+
+// compileScript compiles a risor script with the given globals
+func compileScript(ctx context.Context, code string, globals map[string]any) (*compiler.Code, error) {
+	ast, err := parser.Parse(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+
+	var globalNames []string
+	for name := range globals {
+		globalNames = append(globalNames, name)
+	}
+	sort.Strings(globalNames)
+
+	return compiler.Compile(ast, compiler.WithGlobalNames(globalNames))
 }
 
 // updatePathState updates the state of a path

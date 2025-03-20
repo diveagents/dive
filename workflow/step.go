@@ -24,10 +24,8 @@ type Edge struct {
 }
 
 type EachBlock struct {
-	Array         any
-	As            string
-	Parallel      bool
-	MaxConcurrent int
+	Array any
+	As    string
 }
 
 type Step struct {

@@ -420,7 +420,23 @@ func convertMessages(messages []*llm.Message) ([]*Message, error) {
 			Content: blocks,
 		})
 	}
+
+	reorderMessageContent(result)
+
 	return result, nil
+}
+
+func reorderMessageContent(messages []*Message) {
+	// Any assistant message with two content blocks where the first is a tool use
+	// and the second is a text block should be reordered so the text block is first.
+	// See https://github.com/anthropics/claude-code/issues/473#issuecomment-2738842746
+	for _, msg := range messages {
+		if msg.Role == "assistant" && len(msg.Content) == 2 {
+			if msg.Content[0].Type == "tool_use" && msg.Content[1].Type == "text" {
+				msg.Content = []*ContentBlock{msg.Content[1], msg.Content[0]}
+			}
+		}
+	}
 }
 
 // StreamIterator implements the llm.StreamIterator interface for Anthropic streaming responses

@@ -253,10 +253,8 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		var each *workflow.EachBlock
 		if step.Each != nil {
 			each = &workflow.EachBlock{
-				Array:         step.Each.Array,
-				As:            step.Each.As,
-				Parallel:      step.Each.Parallel,
-				MaxConcurrent: step.Each.MaxConcurrent,
+				Array: step.Each.Array,
+				As:    step.Each.As,
 			}
 		}
 

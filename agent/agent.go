@@ -562,7 +562,6 @@ func (a *Agent) generate(
 	stepName string,
 	publisher dive.Publisher,
 ) (*llm.Response, []*llm.Message, error) {
-
 	// Holds the most recent response from the LLM
 	var response *llm.Response
 	updatedMessages := make([]*llm.Message, len(messages))
@@ -582,7 +581,7 @@ func (a *Agent) generate(
 	// and then automatically run any tool-use invocations. The first time
 	// through, we submit the primary generation. On subsequent loops, we are
 	// running tool-uses and responding with the results.
-	for i := 0; i < generationLimit; i++ {
+	for i := range generationLimit {
 		generateOpts := []llm.Option{
 			llm.WithSystemPrompt(systemPrompt),
 			llm.WithCacheControl(a.cacheControl),
@@ -679,16 +678,22 @@ func (a *Agent) generate(
 		// Execute all requested tool uses and accumulate results
 		shouldReturnResult := false
 		toolResults := make([]*llm.ToolResult, len(response.ToolCalls()))
+
+		if a.logger != nil {
+			a.logger.Debug("processing tool calls",
+				"tool_call_count", len(response.ToolCalls()))
+		}
+
 		for i, toolCall := range response.ToolCalls() {
 			tool, ok := a.toolsByName[toolCall.Name]
 			if !ok {
 				return nil, nil, fmt.Errorf("tool call for unknown tool: %q", toolCall.Name)
 			}
-			a.logger.Debug("tool call",
-				"agent_name", a.name,
+			a.logger.Debug("executing tool call",
+				"tool_id", toolCall.ID,
 				"tool_name", toolCall.Name,
-				"tool_input", toolCall.Input,
-			)
+				"tool_input", toolCall.Input)
+
 			result, err := tool.Call(ctx, toolCall.Input)
 			if err != nil {
 				return nil, nil, fmt.Errorf("tool call error: %w", err)
@@ -710,6 +715,15 @@ func (a *Agent) generate(
 
 		// Capture results in a new message to send on next loop iteration
 		resultMessage := llm.NewToolResultMessage(toolResults)
+		if a.logger != nil {
+			var toolResultIDs []string
+			for _, result := range toolResults {
+				toolResultIDs = append(toolResultIDs, result.ID)
+			}
+			a.logger.Debug("adding tool results message",
+				"tool_result_count", len(toolResults),
+				"tool_result_ids", toolResultIDs)
+		}
 
 		// Add instructions to the message to not use any more tools if we have
 		// only one generation left
@@ -718,12 +732,10 @@ func (a *Agent) generate(
 				Type: llm.ContentTypeText,
 				Text: "Do not use any more tools. You must respond with your final answer now.",
 			})
-			a.logger.Debug(
-				"added tool use limit instruction",
+			a.logger.Debug("added tool use limit instruction",
 				"agent", a.name,
 				"step", stepName,
-				"generation_number", i+1,
-			)
+				"generation_number", i+1)
 		}
 		updatedMessages = append(updatedMessages, resultMessage)
 	}
@@ -846,7 +858,7 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 	} else {
 		// Resuming a step
 		messages = append(messages, state.Messages...)
-		if len(state.Messages) < 32 {
+		if len(messages) < 32 {
 			messages = append(messages, llm.NewUserMessage(continueStepPrompt))
 		} else {
 			messages = append(messages, llm.NewUserMessage(finishStepNowPrompt))
@@ -856,8 +868,7 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 	logger.Info("handling task",
 		"status", state.Status,
 		"truncated_description", TruncateText(prompt, 10),
-		"message_count", len(messages),
-	)
+		"message_count", len(messages))
 
 	// Run the LLM generation and any resulting tool calls
 	response, updatedMessages, err := a.generate(
