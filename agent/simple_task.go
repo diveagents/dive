@@ -12,8 +12,8 @@ var _ dive.Task = &SimpleTask{}
 type SimpleTask struct {
 	name          string
 	description   string
-	inputs        map[string]dive.Input
-	outputs       map[string]dive.Output
+	inputs        map[string]*dive.Input
+	output        *dive.Output
 	assignedAgent dive.Agent
 	dependencies  []string
 	prompt        string
@@ -32,12 +32,12 @@ func (t *SimpleTask) Timeout() time.Duration {
 	return t.timeout
 }
 
-func (t *SimpleTask) Inputs() map[string]dive.Input {
+func (t *SimpleTask) Inputs() map[string]*dive.Input {
 	return t.inputs
 }
 
-func (t *SimpleTask) Outputs() map[string]dive.Output {
-	return t.outputs
+func (t *SimpleTask) Output() *dive.Output {
+	return t.output
 }
 
 func (t *SimpleTask) Agent() dive.Agent {
@@ -62,16 +62,14 @@ func (t *SimpleTask) Prompt(opts dive.TaskPromptOptions) (string, error) {
 	}
 
 	// Add output descriptions if any exist
-	if len(t.outputs) > 0 {
+	if t.output != nil {
 		prompt += "\n\nExpected Outputs:"
-		for name, output := range t.outputs {
-			prompt += "\n- " + name
-			if output.Description != "" {
-				prompt += ": " + output.Description
-			}
-			if output.Format != "" {
-				prompt += "\n  Format: " + output.Format
-			}
+		prompt += "\n- " + t.output.Name
+		if t.output.Description != "" {
+			prompt += ": " + t.output.Description
+		}
+		if t.output.Format != "" {
+			prompt += "\n  Format: " + t.output.Format
 		}
 	}
 

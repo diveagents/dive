@@ -15,9 +15,13 @@ func TestEnvironment_Build(t *testing.T) {
 		Name:        "test-env",
 		Description: "Test Environment",
 		Config: Config{
-			DefaultProvider: "anthropic",
-			DefaultModel:    "claude-3-sonnet-20240229",
-			LogLevel:        "info",
+			LLM: LLMConfig{
+				DefaultProvider: "anthropic",
+				DefaultModel:    "claude-3-sonnet-20240229",
+			},
+			Logging: LoggingConfig{
+				Level: "info",
+			},
 		},
 		Tools: map[string]Tool{
 			"google_search": {
@@ -53,18 +57,16 @@ func TestEnvironment_Build(t *testing.T) {
 				Description: "Research task",
 				Kind:        "research",
 				Agent:       "researcher",
-				Inputs: map[string]Input{
+				Inputs: map[string]*Input{
 					"topic": {
 						Type:        "string",
 						Description: "Research topic",
 						Required:    true,
 					},
 				},
-				Outputs: map[string]Output{
-					"findings": {
-						Type:        "string",
-						Description: "Research findings",
-					},
+				Output: &Output{
+					Type:        "string",
+					Description: "Research findings",
 				},
 			},
 			"write": {
@@ -72,18 +74,16 @@ func TestEnvironment_Build(t *testing.T) {
 				Description: "Writing task",
 				Kind:        "write",
 				Agent:       "writer",
-				Inputs: map[string]Input{
+				Inputs: map[string]*Input{
 					"content": {
 						Type:        "string",
 						Description: "Content to write",
 						Required:    true,
 					},
 				},
-				Outputs: map[string]Output{
-					"result": {
-						Type:        "string",
-						Description: "Written content",
-					},
+				Output: &Output{
+					Type:        "string",
+					Description: "Written content",
 				},
 			},
 		},

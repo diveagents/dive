@@ -6,7 +6,6 @@ import "context"
 type ListDocumentInput struct {
 	PathPrefix string
 	Recursive  bool
-	Tags       []string
 }
 
 // ListDocumentOutput is the output for listing documents
@@ -29,4 +28,7 @@ type Repository interface {
 
 	// DeleteDocument deletes a document
 	DeleteDocument(ctx context.Context, doc Document) error
+
+	// Exists checks if a document exists by name
+	Exists(ctx context.Context, name string) (bool, error)
 }

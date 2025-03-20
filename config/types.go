@@ -1,12 +1,33 @@
 package config
 
-// Config represents global configuration settings
-type Config struct {
+// LLMConfig is used to configure LLM related settings
+type LLMConfig struct {
 	CacheControl    string `yaml:"cache_control,omitempty" json:"cache_control,omitempty"`
 	DefaultProvider string `yaml:"default_provider,omitempty" json:"default_provider,omitempty"`
 	DefaultModel    string `yaml:"default_model,omitempty" json:"default_model,omitempty"`
+}
+
+// LoggingConfig is used to configure logging related settings
+type LoggingConfig struct {
+	Level string `yaml:"level,omitempty" json:"level,omitempty"`
+}
+
+// WorkflowConfig is used to configure Workflow related settings
+type WorkflowConfig struct {
 	DefaultWorkflow string `yaml:"default_workflow,omitempty" json:"default_workflow,omitempty"`
-	LogLevel        string `yaml:"log_level,omitempty" json:"log_level,omitempty"`
+}
+
+// DocumentsConfig is used to configure Documents related settings
+type DocumentsConfig struct {
+	Dir string `yaml:"dir,omitempty" json:"dir,omitempty"`
+}
+
+// Config represents global configuration settings
+type Config struct {
+	LLM       LLMConfig       `yaml:"llm,omitempty" json:"llm,omitempty"`
+	Logging   LoggingConfig   `yaml:"logging,omitempty" json:"logging,omitempty"`
+	Workflows WorkflowConfig  `yaml:"workflows,omitempty" json:"workflows,omitempty"`
+	Documents DocumentsConfig `yaml:"documents,omitempty" json:"documents,omitempty"`
 }
 
 // Variable represents a workflow-level input parameter
@@ -60,10 +81,12 @@ type Input struct {
 
 // Output represents an output parameter for a task or workflow
 type Output struct {
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
 	Type        string `yaml:"type,omitempty" json:"type,omitempty"`
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	Format      string `yaml:"format,omitempty" json:"format,omitempty"`
 	Default     any    `yaml:"default,omitempty" json:"default,omitempty"`
+	Document    string `yaml:"document,omitempty" json:"document,omitempty"`
 }
 
 // Task is a serializable representation of a dive.Task
@@ -74,8 +97,8 @@ type Task struct {
 	Agent       string            `yaml:"agent,omitempty" json:"agent,omitempty"`
 	OutputFile  string            `yaml:"output_file,omitempty" json:"output_file,omitempty"`
 	Timeout     string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Inputs      map[string]Input  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	Outputs     map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+	Inputs      map[string]*Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Output      *Output           `yaml:"output,omitempty" json:"output,omitempty"`
 }
 
 // Step represents a single step in a workflow
@@ -83,6 +106,7 @@ type Step struct {
 	Name    string         `yaml:"name,omitempty" json:"name,omitempty"`
 	Task    string         `yaml:"task,omitempty" json:"task,omitempty"`
 	With    map[string]any `yaml:"with,omitempty" json:"with,omitempty"`
+	Output  *Output        `yaml:"output,omitempty" json:"output,omitempty"`
 	Each    *EachBlock     `yaml:"each,omitempty" json:"each,omitempty"`
 	Next    []NextStep     `yaml:"next,omitempty" json:"next,omitempty"`
 	IsStart bool           `yaml:"is_start,omitempty" json:"is_start,omitempty"`
@@ -90,10 +114,8 @@ type Step struct {
 
 // EachBlock represents iteration configuration for a step
 type EachBlock struct {
-	Array         any    `yaml:"array,omitempty" json:"array,omitempty"`
-	As            string `yaml:"as,omitempty" json:"as,omitempty"`
-	Parallel      bool   `yaml:"parallel,omitempty" json:"parallel,omitempty"`
-	MaxConcurrent int    `yaml:"max_concurrent,omitempty" json:"max_concurrent,omitempty"`
+	Items any    `yaml:"items,omitempty" json:"items,omitempty"`
+	As    string `yaml:"as,omitempty" json:"as,omitempty"`
 }
 
 // NextStep represents the next step in a workflow with optional conditions
@@ -104,12 +126,12 @@ type NextStep struct {
 
 // Workflow represents a workflow definition
 type Workflow struct {
-	Name        string            `yaml:"name,omitempty" json:"name,omitempty"`
-	Description string            `yaml:"description,omitempty" json:"description,omitempty"`
-	Inputs      map[string]Input  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	Outputs     map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
-	Triggers    []Trigger         `yaml:"triggers,omitempty" json:"triggers,omitempty"`
-	Steps       []Step            `yaml:"steps,omitempty" json:"steps,omitempty"`
+	Name        string           `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string           `yaml:"description,omitempty" json:"description,omitempty"`
+	Inputs      map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Output      *Output          `yaml:"output,omitempty" json:"output,omitempty"`
+	Triggers    []Trigger        `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	Steps       []Step           `yaml:"steps,omitempty" json:"steps,omitempty"`
 }
 
 // Trigger represents a trigger definition
@@ -129,11 +151,10 @@ type Schedule struct {
 
 // Document represents a document that can be referenced by agents and tasks
 type Document struct {
-	ID          string   `yaml:"id,omitempty" json:"id,omitempty"`
-	Name        string   `yaml:"name,omitempty" json:"name,omitempty"`
-	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
-	Path        string   `yaml:"path,omitempty" json:"path,omitempty"`
-	Content     string   `yaml:"content,omitempty" json:"content,omitempty"`
-	ContentType string   `yaml:"content_type,omitempty" json:"content_type,omitempty"`
-	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	ID          string `yaml:"id,omitempty" json:"id,omitempty"`
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	Path        string `yaml:"path,omitempty" json:"path,omitempty"`
+	Content     string `yaml:"content,omitempty" json:"content,omitempty"`
+	ContentType string `yaml:"content_type,omitempty" json:"content_type,omitempty"`
 }

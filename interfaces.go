@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/llm"
 )
 
@@ -45,6 +46,7 @@ type Output struct {
 	Description string      `json:"description,omitempty"`
 	Format      string      `json:"format,omitempty"`
 	Default     interface{} `json:"default,omitempty"`
+	Document    string      `json:"document,omitempty"`
 }
 
 type TaskPromptOptions struct {
@@ -70,10 +72,10 @@ type Task interface {
 	Validate() error
 
 	// Inputs returns the inputs for the task
-	Inputs() map[string]Input
+	Inputs() map[string]*Input
 
-	// Outputs returns the outputs for the task
-	Outputs() map[string]Output
+	// Output returns the output for the task
+	Output() *Output
 
 	// Prompt returns the prompt for the task
 	Prompt(opts TaskPromptOptions) (string, error)
@@ -162,6 +164,12 @@ type Environment interface {
 
 	// GetAgent returns the Agent with the given name, if found
 	GetAgent(name string) (Agent, error)
+
+	// DocumentRepository returns the DocumentRepository for this Environment
+	DocumentRepository() document.Repository
+
+	// KnownDocuments returns a map of all documents known to this Environment
+	KnownDocuments() map[string]*document.Metadata
 }
 
 // GenerateOptions contains configuration for LLM generations.

@@ -9,27 +9,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFileSystemDocumentStore(t *testing.T) {
+func TestFileSysRepository(t *testing.T) {
 	// Create temp directory for tests
-	tmpDir, err := os.MkdirTemp("", "docstore-test-*")
+	tmpDir, err := os.MkdirTemp("", "docrepo-test-*")
 	require.NoError(t, err, "Failed to create temp directory")
 	defer os.RemoveAll(tmpDir)
 
-	// Create store
-	store, err := NewFileSystemDocumentStore(tmpDir)
-	require.NoError(t, err, "Failed to create document store")
+	repo, err := NewFileSysRepository(tmpDir)
+	require.NoError(t, err, "Failed to create document repo")
 
 	ctx := context.Background()
 
 	// Test PutDocument
 	t.Run("PutDocument", func(t *testing.T) {
-		doc := NewTextDocument(DocumentOptions{
+		doc := New(Options{
 			Name:    "test.txt",
 			Path:    "docs/test.txt",
 			Content: "test content",
 		})
 
-		require.NoError(t, store.PutDocument(ctx, doc))
+		require.NoError(t, repo.PutDocument(ctx, doc))
 
 		// Verify file exists
 		content, err := os.ReadFile(filepath.Join(tmpDir, "docs/test.txt"))
@@ -39,7 +38,7 @@ func TestFileSystemDocumentStore(t *testing.T) {
 
 	// Test GetDocument
 	t.Run("GetDocument", func(t *testing.T) {
-		doc, err := store.GetDocument(ctx, "docs/test.txt")
+		doc, err := repo.GetDocument(ctx, "docs/test.txt")
 		require.NoError(t, err, "GetDocument failed")
 
 		require.Equal(t, "test content", doc.Content(), "Document content mismatch")
@@ -57,12 +56,12 @@ func TestFileSystemDocumentStore(t *testing.T) {
 		require.NoError(t, err, "Failed to create docs directory")
 
 		// Add test document that should already exist
-		doc := NewTextDocument(DocumentOptions{
+		doc := New(Options{
 			Name:    "test.txt",
 			Path:    "docs/test.txt",
 			Content: "test content",
 		})
-		require.NoError(t, store.PutDocument(ctx, doc), "Failed to put initial test document")
+		require.NoError(t, repo.PutDocument(ctx, doc), "Failed to put initial test document")
 
 		// Add more test documents
 		docs := []struct {
@@ -75,12 +74,12 @@ func TestFileSystemDocumentStore(t *testing.T) {
 		}
 
 		for _, d := range docs {
-			doc := NewTextDocument(DocumentOptions{
+			doc := New(Options{
 				Name:    filepath.Base(d.uri),
 				Path:    d.uri,
 				Content: d.content,
 			})
-			require.NoError(t, store.PutDocument(ctx, doc), "Failed to put test document")
+			require.NoError(t, repo.PutDocument(ctx, doc), "Failed to put test document")
 		}
 
 		tests := []struct {
@@ -111,7 +110,7 @@ func TestFileSystemDocumentStore(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result, err := store.ListDocuments(ctx, tt.input)
+				result, err := repo.ListDocuments(ctx, tt.input)
 				require.NoError(t, err, "ListDocuments failed")
 				require.Len(t, result.Items, tt.wantCount, "Unexpected number of documents")
 
@@ -129,35 +128,35 @@ func TestFileSystemDocumentStore(t *testing.T) {
 
 	// Test DeleteDocument
 	t.Run("DeleteDocument", func(t *testing.T) {
-		doc := NewTextDocument(DocumentOptions{
+		doc := New(Options{
 			Name:    "delete-test.txt",
 			Path:    "docs/delete-test.txt",
 			Content: "to be deleted",
 		})
 
 		// First put the document
-		require.NoError(t, store.PutDocument(ctx, doc), "Failed to put test document")
+		require.NoError(t, repo.PutDocument(ctx, doc), "Failed to put test document")
 
 		// Then delete it
-		require.NoError(t, store.DeleteDocument(ctx, doc), "DeleteDocument failed")
+		require.NoError(t, repo.DeleteDocument(ctx, doc), "DeleteDocument failed")
 
 		// Verify it's gone
-		_, err = store.GetDocument(ctx, "docs/delete-test.txt")
+		_, err = repo.GetDocument(ctx, "docs/delete-test.txt")
 		require.Error(t, err, "Expected error getting deleted document")
 	})
 
 	// Test error cases
 	t.Run("ErrorCases", func(t *testing.T) {
 		// Test getting non-existent document
-		_, err := store.GetDocument(ctx, "nonexistent.txt")
+		_, err := repo.GetDocument(ctx, "nonexistent.txt")
 		require.Error(t, err, "Expected error getting non-existent document")
 
 		// Test putting document without URI
-		doc := NewTextDocument(DocumentOptions{
+		doc := New(Options{
 			Name:    "no-uri.txt",
 			Content: "test",
 		})
-		err = store.PutDocument(ctx, doc)
+		err = repo.PutDocument(ctx, doc)
 		require.Error(t, err, "Expected error putting document without URI")
 	})
 }

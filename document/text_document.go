@@ -2,18 +2,17 @@ package document
 
 import "path/filepath"
 
-type DocumentOptions struct {
-	ID          string   `json:"id,omitempty"`
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Path        string   `json:"path,omitempty"`
-	Version     int      `json:"version,omitempty"`
-	Content     string   `json:"content,omitempty"`
-	ContentType string   `json:"content_type,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
+type Options struct {
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Version     int    `json:"version,omitempty"`
+	Content     string `json:"content,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
-func NewTextDocument(opts DocumentOptions) *TextDocument {
+func New(opts Options) *TextDocument {
 	if opts.ContentType == "" {
 		opts.ContentType = "text/plain"
 	}
@@ -38,7 +37,6 @@ func NewTextDocument(opts DocumentOptions) *TextDocument {
 		version:     opts.Version,
 		content:     opts.Content,
 		contentType: opts.ContentType,
-		tags:        opts.Tags,
 	}
 }
 
@@ -50,7 +48,6 @@ type TextDocument struct {
 	version     int
 	content     string
 	contentType string
-	tags        []string
 }
 
 func (d *TextDocument) ID() string {
@@ -81,10 +78,6 @@ func (d *TextDocument) ContentType() string {
 	return d.contentType
 }
 
-func (d *TextDocument) Tags() []string {
-	return d.tags
-}
-
 func (d *TextDocument) SetName(name string) {
 	d.name = name
 }
@@ -93,8 +86,9 @@ func (d *TextDocument) SetPath(path string) {
 	d.path = path
 }
 
-func (d *TextDocument) SetContent(content string) {
+func (d *TextDocument) SetContent(content string) error {
 	d.content = content
+	return nil
 }
 
 func (d *TextDocument) IncrementVersion() {

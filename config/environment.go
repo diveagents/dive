@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/environment"
 	"github.com/getstingrai/dive/workflow"
 	"gopkg.in/yaml.v3"
@@ -147,14 +149,73 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		triggers = append(triggers, trigger)
 	}
 
+	if buildOpts.DocumentsDir != "" && buildOpts.DocumentsRepo != nil {
+		return nil, fmt.Errorf("documents dir and repo cannot both be set")
+	}
+	var repo document.Repository
+	if buildOpts.DocumentsRepo != nil {
+		repo = buildOpts.DocumentsRepo
+	} else {
+		dir := buildOpts.DocumentsDir
+		if dir == "" {
+			if env.Config.Documents.Dir != "" {
+				dir = env.Config.Documents.Dir
+			} else {
+				dir = "."
+			}
+		}
+		repo, err = document.NewFileSysRepository(dir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create document repository: %w", err)
+		}
+	}
+
+	// Initialize documents
+	knownDocuments := map[string]*document.Metadata{}
+	for name, docDef := range env.Documents {
+		if docDef.Path == "" {
+			docDef.Path = name
+		}
+		docName := docDef.Name
+		if docName == "" {
+			docName = name
+		}
+		knownDocuments[docName] = &document.Metadata{
+			Name:        docName,
+			Description: docDef.Description,
+			Path:        docDef.Path,
+			ContentType: docDef.ContentType,
+		}
+		// Create if it doesn't exist
+		exists, err := repo.Exists(context.Background(), docDef.Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if document exists: %w", err)
+		}
+		if !exists {
+			err = repo.PutDocument(context.Background(), document.New(document.Options{
+				Name:        docName,
+				Description: docDef.Description,
+				Path:        docDef.Path,
+				Content:     docDef.Content,
+				ContentType: docDef.ContentType,
+				Version:     1,
+			}))
+			if err != nil {
+				return nil, fmt.Errorf("failed to create document: %w", err)
+			}
+		}
+	}
+
 	// Environment
 	result, err := environment.New(environment.EnvironmentOptions{
-		Name:        env.Name,
-		Description: env.Description,
-		Agents:      agents,
-		Workflows:   workflows,
-		Triggers:    triggers,
-		Logger:      buildOpts.Logger,
+		Name:           env.Name,
+		Description:    env.Description,
+		Agents:         agents,
+		Workflows:      workflows,
+		Triggers:       triggers,
+		Logger:         buildOpts.Logger,
+		DocumentRepo:   repo,
+		KnownDocuments: knownDocuments,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create environment: %w", err)

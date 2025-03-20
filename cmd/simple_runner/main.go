@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/fatih/color"
@@ -81,15 +80,5 @@ func main() {
 		fatal(err.Error())
 	}
 
-	if outDir != "" {
-		if err := os.MkdirAll(outDir, 0755); err != nil {
-			fatal("Error: failed to create output directory: %s", err)
-		}
-		for name, output := range execution.StepOutputs() {
-			if err := os.WriteFile(filepath.Join(outDir, name+".md"), []byte(output), 0644); err != nil {
-				fatal("Error: failed to write output file: %s", err)
-			}
-			fmt.Printf("Wrote output for step %q to %s\n", name, filepath.Join(outDir, name+".md"))
-		}
-	}
+	fmt.Println("Workflow completed")
 }

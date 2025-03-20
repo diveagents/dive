@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+var _ Repository = &MemoryRepository{}
+
 // MemoryRepository implements Repository interface using an in-memory map
 type MemoryRepository struct {
 	mu        sync.RWMutex
@@ -53,29 +55,6 @@ func (r *MemoryRepository) ListDocuments(ctx context.Context, input *ListDocumen
 				}
 			}
 		}
-
-		// Check tags if specified
-		if len(input.Tags) > 0 {
-			hasAllTags := true
-			docTags := doc.Tags()
-			for _, requiredTag := range input.Tags {
-				found := false
-				for _, docTag := range docTags {
-					if docTag == requiredTag {
-						found = true
-						break
-					}
-				}
-				if !found {
-					hasAllTags = false
-					break
-				}
-			}
-			if !hasAllTags {
-				continue
-			}
-		}
-
 		items = append(items, doc)
 	}
 
@@ -90,7 +69,7 @@ func (r *MemoryRepository) PutDocument(ctx context.Context, doc Document) error 
 	textDoc, ok := doc.(*TextDocument)
 	if !ok {
 		// If not already a TextDocument, create a new one with the same properties
-		textDoc = NewTextDocument(DocumentOptions{
+		textDoc = New(Options{
 			ID:          doc.ID(),
 			Name:        doc.Name(),
 			Description: doc.Description(),
@@ -98,7 +77,6 @@ func (r *MemoryRepository) PutDocument(ctx context.Context, doc Document) error 
 			Version:     doc.Version(),
 			Content:     doc.Content(),
 			ContentType: doc.ContentType(),
-			Tags:        doc.Tags(),
 		})
 	}
 
@@ -117,4 +95,13 @@ func (r *MemoryRepository) DeleteDocument(ctx context.Context, doc Document) err
 
 	delete(r.documents, doc.Name())
 	return nil
+}
+
+// Exists checks if a document exists by name
+func (r *MemoryRepository) Exists(ctx context.Context, name string) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	_, exists := r.documents[name]
+	return exists, nil
 }

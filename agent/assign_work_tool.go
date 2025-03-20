@@ -133,14 +133,11 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 		name:          params.Name,
 		description:   params.Description,
 		assignedAgent: agent,
-		inputs:        map[string]dive.Input{},
-		outputs: map[string]dive.Output{
-			"output": {
-				Name:        "output",
-				Type:        "string",
-				Description: params.ExpectedOutput,
-				Format:      string(outputFormat),
-			},
+		output: &dive.Output{
+			Name:        "output",
+			Type:        "string",
+			Description: params.ExpectedOutput,
+			Format:      string(outputFormat),
 		},
 		prompt: "", // TODO
 	}

@@ -120,12 +120,10 @@ func TestAgentTask(t *testing.T) {
 	stream, err := agent.Work(ctx, &SimpleTask{
 		name:        "Limerick",
 		description: "Write a limerick about a cat",
-		outputs: map[string]dive.Output{
-			"poem": {
-				Name:        "poem",
-				Type:        "string",
-				Description: "A limerick about a cat",
-			},
+		output: &dive.Output{
+			Name:        "poem",
+			Type:        "string",
+			Description: "A limerick about a cat",
 		},
 	}, map[string]any{})
 	require.NoError(t, err)

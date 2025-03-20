@@ -18,8 +18,8 @@ type TaskOptions struct {
 	Name        string
 	Description string
 	Kind        string
-	Inputs      map[string]dive.Input
-	Outputs     map[string]dive.Output
+	Inputs      map[string]*dive.Input
+	Output      *dive.Output
 	Timeout     time.Duration
 	Agent       dive.Agent
 }
@@ -30,8 +30,8 @@ type Task struct {
 	name         string
 	description  string
 	kind         string
-	inputs       map[string]dive.Input
-	outputs      map[string]dive.Output
+	inputs       map[string]*dive.Input
+	output       *dive.Output
 	timeout      time.Duration
 	agent        dive.Agent
 	nameIsRandom bool
@@ -56,7 +56,7 @@ func NewTask(opts TaskOptions) *Task {
 		description:  opts.Description,
 		kind:         opts.Kind,
 		inputs:       opts.Inputs,
-		outputs:      opts.Outputs,
+		output:       opts.Output,
 		timeout:      opts.Timeout,
 		agent:        opts.Agent,
 		nameIsRandom: nameIsRandom,
@@ -65,13 +65,13 @@ func NewTask(opts TaskOptions) *Task {
 	}
 }
 
-func (t *Task) Name() string                    { return t.name }
-func (t *Task) Description() string             { return t.description }
-func (t *Task) Kind() string                    { return t.kind }
-func (t *Task) Inputs() map[string]dive.Input   { return t.inputs }
-func (t *Task) Outputs() map[string]dive.Output { return t.outputs }
-func (t *Task) Timeout() time.Duration          { return t.timeout }
-func (t *Task) Agent() dive.Agent               { return t.agent }
+func (t *Task) Name() string                   { return t.name }
+func (t *Task) Description() string            { return t.description }
+func (t *Task) Kind() string                   { return t.kind }
+func (t *Task) Inputs() map[string]*dive.Input { return t.inputs }
+func (t *Task) Output() *dive.Output           { return t.output }
+func (t *Task) Timeout() time.Duration         { return t.timeout }
+func (t *Task) Agent() dive.Agent              { return t.agent }
 
 // Validate checks if the task is properly configured
 func (t *Task) Validate() error {
@@ -121,13 +121,11 @@ func (t *Task) Prompt(opts dive.TaskPromptOptions) (string, error) {
 		lines = append(lines, description)
 	}
 
-	if len(t.outputs) > 0 {
-		outputLines := []string{"Please provide the following outputs:"}
-		for name, output := range t.outputs {
-			outputLines = append(outputLines, fmt.Sprintf("- %s (%s): %s", name, output.Type, output.Description))
-			if output.Format != "" {
-				outputLines = append(outputLines, fmt.Sprintf("  Format: %s", output.Format))
-			}
+	if t.output != nil {
+		outputLines := []string{"Please provide the following output:"}
+		outputLines = append(outputLines, fmt.Sprintf("%s (%s): %s", t.output.Name, t.output.Type, t.output.Description))
+		if t.output.Format != "" {
+			outputLines = append(outputLines, fmt.Sprintf("  Format: %s", t.output.Format))
 		}
 		lines = append(lines, strings.Join(outputLines, "\n"))
 	}

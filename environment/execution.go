@@ -396,6 +396,7 @@ func (e *Execution) handleEachBlock(
 	each *workflow.EachBlock,
 	logger slogger.Logger,
 ) (string, error) {
+	task := step.Task()
 	items, err := e.resolveEachItems(ctx, each, logger)
 	if err != nil {
 		return "", err
@@ -420,18 +421,34 @@ func (e *Execution) handleEachBlock(
 		}
 		results = append(results, result)
 	}
-	return strings.Join(results, "\n\n"), nil
+	combined := strings.Join(results, "\n\n")
+
+	// Determine which output to use, with the step taking precedence
+	var output *dive.Output
+	if task.Output() != nil {
+		output = task.Output()
+	}
+	if step.Output() != nil {
+		output = step.Output()
+	}
+	if output != nil && output.Document != "" {
+		if err := e.saveOutput(ctx, step, combined, output, logger); err != nil {
+			return "", fmt.Errorf("failed to save output: %w", err)
+		}
+	}
+
+	return combined, nil
 }
 
 // resolveEachItems resolves the array of items from either a direct array or a risor expression
 func (e *Execution) resolveEachItems(ctx context.Context, each *workflow.EachBlock, logger slogger.Logger) ([]string, error) {
 	// Handle array of strings directly
-	if strArray, ok := each.Array.([]string); ok {
+	if strArray, ok := each.Items.([]string); ok {
 		return strArray, nil
 	}
 
 	// Handle interface array by converting to strings
-	if ifaceArray, ok := each.Array.([]interface{}); ok {
+	if ifaceArray, ok := each.Items.([]interface{}); ok {
 		strArray := make([]string, len(ifaceArray))
 		for i, v := range ifaceArray {
 			switch val := v.(type) {
@@ -447,11 +464,11 @@ func (e *Execution) resolveEachItems(ctx context.Context, each *workflow.EachBlo
 	}
 
 	// Handle risor expression
-	if codeStr, ok := each.Array.(string); ok && strings.HasPrefix(codeStr, "$(") && strings.HasSuffix(codeStr, ")") {
+	if codeStr, ok := each.Items.(string); ok && strings.HasPrefix(codeStr, "$(") && strings.HasSuffix(codeStr, ")") {
 		return e.evaluateRisorExpression(ctx, codeStr, logger)
 	}
 
-	return nil, fmt.Errorf("each array must be []string, []interface{}, or risor expression, got %T", each.Array)
+	return nil, fmt.Errorf("each items must be []string, []interface{}, or risor expression, got %T", each.Items)
 }
 
 // evaluateRisorExpression evaluates a risor expression and returns the result as a string array
@@ -491,28 +508,72 @@ func (e *Execution) evaluateRisorExpression(ctx context.Context, codeStr string,
 
 // handleStepExecution executes a single step and returns the result
 func (e *Execution) handleStepExecution(ctx context.Context, path *executionPath, agent dive.Agent, logger slogger.Logger) (*dive.TaskResult, error) {
-	processedInputs, err := e.processTaskInputs(ctx, path.currentStep, map[string]any{})
+	step := path.currentStep
+	task := step.Task()
+
+	processedInputs, err := e.processTaskInputs(ctx, step, map[string]any{})
 	if err != nil {
 		logger.Error("task input processing failed", "error", err)
 		return nil, err
 	}
 
-	// Update path state with current task
 	e.updatePathState(path.id, func(state *PathState) {
-		state.CurrentStep = path.currentStep
+		state.CurrentStep = step
 	})
 
-	// Execute task
-	result, err := executeTask(ctx, agent, path.currentStep.Task(), processedInputs)
+	result, err := executeTask(ctx, agent, task, processedInputs)
 	if err != nil {
-		logger.Error("task execution failed",
-			"task", path.currentStep.Task().Name(),
-			"error", err,
-		)
+		logger.Error("task execution failed", "task", task.Name(), "error", err)
 		return nil, err
 	}
 
+	// Determine which output to use, with the step taking precedence
+	var output *dive.Output
+	if task.Output() != nil {
+		output = task.Output()
+	}
+	if step.Output() != nil {
+		output = step.Output()
+	}
+
+	if output != nil && output.Document != "" {
+		if err := e.saveOutput(ctx, step, result.Content, output, logger); err != nil {
+			return nil, fmt.Errorf("failed to save output: %w", err)
+		}
+	}
 	return result, nil
+}
+
+func (e *Execution) saveOutput(
+	ctx context.Context,
+	step *workflow.Step,
+	content string,
+	output *dive.Output,
+	logger slogger.Logger,
+) error {
+	repo := e.environment.DocumentRepository()
+	if repo == nil {
+		return fmt.Errorf("no document repository available")
+	}
+	docMeta, ok := e.environment.KnownDocuments()[output.Document]
+	if !ok {
+		return fmt.Errorf("document not found: %q", output.Document)
+	}
+	doc, err := repo.GetDocument(ctx, docMeta.Path)
+	if err != nil {
+		return fmt.Errorf("failed to get document: %w", err)
+	}
+	doc.SetContent(content)
+	if err := repo.PutDocument(ctx, doc); err != nil {
+		return fmt.Errorf("failed to put document: %w", err)
+	}
+	logger.Info("document updated",
+		"document", output.Document,
+		"path", docMeta.Path,
+		"step", step.Name(),
+		"task", step.Task().Name(),
+	)
+	return nil
 }
 
 // updatePathError updates the path state with an error
@@ -640,7 +701,7 @@ func (e *Execution) processEachItem(ctx context.Context, step *workflow.Step, ag
 		Name:        itemName,
 		Description: originalTask.Description(),
 		Inputs:      originalTask.Inputs(),
-		Outputs:     originalTask.Outputs(),
+		Output:      originalTask.Output(),
 		Agent:       originalTask.Agent(),
 	})
 

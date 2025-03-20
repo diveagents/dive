@@ -80,12 +80,10 @@ func main() {
 	task := workflow.NewTask(workflow.TaskOptions{
 		Name:        "Research the history of the internet",
 		Description: "Research the history of the internet",
-		Outputs: map[string]dive.Output{
-			"history": {
-				Name:        "history",
-				Description: "The history of the internet",
-				Format:      string(dive.OutputMarkdown),
-			},
+		Output: &dive.Output{
+			Name:        "history",
+			Description: "The history of the internet",
+			Format:      string(dive.OutputMarkdown),
 		},
 	})
 

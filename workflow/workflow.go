@@ -17,8 +17,8 @@ type Trigger struct {
 type Workflow struct {
 	name        string
 	description string
-	inputs      map[string]dive.Input
-	outputs     map[string]dive.Output
+	inputs      map[string]*dive.Input
+	output      *dive.Output
 	steps       []*Step
 	graph       *Graph
 	tasks       []dive.Task
@@ -29,8 +29,8 @@ type Workflow struct {
 type WorkflowOptions struct {
 	Name        string
 	Description string
-	Inputs      map[string]dive.Input
-	Outputs     map[string]dive.Output
+	Inputs      map[string]*dive.Input
+	Output      *dive.Output
 	Steps       []*Step
 	Triggers    []*Trigger
 }
@@ -56,7 +56,7 @@ func NewWorkflow(opts WorkflowOptions) (*Workflow, error) {
 		name:        opts.Name,
 		description: opts.Description,
 		inputs:      opts.Inputs,
-		outputs:     opts.Outputs,
+		output:      opts.Output,
 		steps:       opts.Steps,
 		graph:       graph,
 		triggers:    opts.Triggers,
@@ -75,12 +75,12 @@ func (w *Workflow) Description() string {
 	return w.description
 }
 
-func (w *Workflow) Inputs() map[string]dive.Input {
+func (w *Workflow) Inputs() map[string]*dive.Input {
 	return w.inputs
 }
 
-func (w *Workflow) Outputs() map[string]dive.Output {
-	return w.outputs
+func (w *Workflow) Output() *dive.Output {
+	return w.output
 }
 
 func (w *Workflow) Tasks() []dive.Task {

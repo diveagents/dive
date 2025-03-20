@@ -15,17 +15,20 @@ func Merge(base, override *Environment) *Environment {
 	}
 
 	// Merge config
-	if override.Config.CacheControl != "" {
-		result.Config.CacheControl = override.Config.CacheControl
+	if override.Config.LLM.CacheControl != "" {
+		result.Config.LLM.CacheControl = override.Config.LLM.CacheControl
 	}
-	if override.Config.DefaultProvider != "" {
-		result.Config.DefaultProvider = override.Config.DefaultProvider
+	if override.Config.LLM.DefaultProvider != "" {
+		result.Config.LLM.DefaultProvider = override.Config.LLM.DefaultProvider
 	}
-	if override.Config.DefaultModel != "" {
-		result.Config.DefaultModel = override.Config.DefaultModel
+	if override.Config.LLM.DefaultModel != "" {
+		result.Config.LLM.DefaultModel = override.Config.LLM.DefaultModel
 	}
-	if override.Config.LogLevel != "" {
-		result.Config.LogLevel = override.Config.LogLevel
+	if override.Config.Logging.Level != "" {
+		result.Config.Logging.Level = override.Config.Logging.Level
+	}
+	if override.Config.Workflows.DefaultWorkflow != "" {
+		result.Config.Workflows.DefaultWorkflow = override.Config.Workflows.DefaultWorkflow
 	}
 
 	// Merge variables

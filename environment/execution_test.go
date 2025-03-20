@@ -232,7 +232,7 @@ func TestExecutionWithEach(t *testing.T) {
 				Task: workflow.NewTask(workflow.TaskOptions{
 					Name:        "each-task",
 					Description: "test description",
-					Inputs: map[string]dive.Input{
+					Inputs: map[string]*dive.Input{
 						"item": {
 							Type:     "string",
 							Required: true,
@@ -240,7 +240,7 @@ func TestExecutionWithEach(t *testing.T) {
 					},
 				}),
 				Each: &workflow.EachBlock{
-					Array: []string{"item1", "item2", "item3"},
+					Items: []string{"item1", "item2", "item3"},
 					As:    "item",
 				},
 			}),
@@ -291,7 +291,7 @@ func TestExecutionWithEach(t *testing.T) {
 func TestExecutionWithInputs(t *testing.T) {
 	wf, err := workflow.NewWorkflow(workflow.WorkflowOptions{
 		Name: "input-workflow",
-		Inputs: map[string]dive.Input{
+		Inputs: map[string]*dive.Input{
 			"required_input": {
 				Type:     "string",
 				Required: true,

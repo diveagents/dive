@@ -17,12 +17,12 @@ import (
 )
 
 type BuildOptions struct {
-	Variables  map[string]interface{}
-	Tools      map[string]llm.Tool
-	Logger     slogger.Logger
-	LogLevel   string
-	OutputDir  string
-	Repository document.Repository
+	Variables     map[string]interface{}
+	Tools         map[string]llm.Tool
+	Logger        slogger.Logger
+	LogLevel      string
+	DocumentsDir  string
+	DocumentsRepo document.Repository
 }
 
 type BuildOption func(*BuildOptions)
@@ -45,22 +45,22 @@ func WithLogger(logger slogger.Logger) BuildOption {
 	}
 }
 
-func WithOutputDir(dir string) BuildOption {
+func WithDocumentsDir(dir string) BuildOption {
 	return func(opts *BuildOptions) {
-		opts.OutputDir = dir
+		opts.DocumentsDir = dir
 	}
 }
 
-func WithRepository(repo document.Repository) BuildOption {
+func WithDocumentsRepo(repo document.Repository) BuildOption {
 	return func(opts *BuildOptions) {
-		opts.Repository = repo
+		opts.DocumentsRepo = repo
 	}
 }
 
 func buildAgent(agentDef AgentConfig, globalConfig Config, toolsMap map[string]llm.Tool, logger slogger.Logger) (dive.Agent, error) {
 	provider := agentDef.Provider
 	if provider == "" {
-		provider = globalConfig.DefaultProvider
+		provider = globalConfig.LLM.DefaultProvider
 		if provider == "" {
 			provider = "anthropic"
 		}
@@ -68,7 +68,7 @@ func buildAgent(agentDef AgentConfig, globalConfig Config, toolsMap map[string]l
 
 	model := agentDef.Model
 	if model == "" {
-		model = globalConfig.DefaultModel
+		model = globalConfig.LLM.DefaultModel
 	}
 
 	var llmProvider llm.LLM
@@ -118,12 +118,7 @@ func buildAgent(agentDef AgentConfig, globalConfig Config, toolsMap map[string]l
 
 	cacheControl := agentDef.CacheControl
 	if cacheControl == "" {
-		cacheControl = globalConfig.CacheControl
-	}
-
-	logLevel := agentDef.LogLevel
-	if logLevel == "" {
-		logLevel = globalConfig.LogLevel
+		cacheControl = globalConfig.LLM.CacheControl
 	}
 
 	agent := agent.NewAgent(agent.AgentOptions{
@@ -168,9 +163,9 @@ func buildTask(taskDef Task, agents []dive.Agent) (*workflow.Task, error) {
 	}
 
 	// Convert inputs from config format to core format
-	inputs := make(map[string]dive.Input)
+	inputs := make(map[string]*dive.Input)
 	for name, input := range taskDef.Inputs {
-		inputs[name] = dive.Input{
+		inputs[name] = &dive.Input{
 			Name:        name,
 			Type:        input.Type,
 			Description: input.Description,
@@ -179,15 +174,23 @@ func buildTask(taskDef Task, agents []dive.Agent) (*workflow.Task, error) {
 		}
 	}
 
-	// Convert outputs from config format to core format
-	outputs := make(map[string]dive.Output)
-	for name, output := range taskDef.Outputs {
-		outputs[name] = dive.Output{
-			Name:        name,
-			Type:        output.Type,
-			Description: output.Description,
-			Format:      output.Format,
-			Default:     output.Default,
+	// Convert outputs from config format to core format, apply defaults
+	var output *dive.Output
+	if taskDef.Output != nil {
+		outputType := output.Type
+		if outputType == "" {
+			outputType = "string"
+		}
+		outputFormat := output.Format
+		if outputFormat == "" {
+			outputFormat = string(dive.OutputText)
+		}
+		output = &dive.Output{
+			Description: taskDef.Output.Description,
+			Type:        outputType,
+			Format:      outputFormat,
+			Default:     taskDef.Output.Default,
+			Document:    taskDef.Output.Document,
 		}
 	}
 
@@ -196,7 +199,7 @@ func buildTask(taskDef Task, agents []dive.Agent) (*workflow.Task, error) {
 		Description: taskDef.Description,
 		Kind:        taskDef.Kind,
 		Inputs:      inputs,
-		Outputs:     outputs,
+		Output:      output,
 		Agent:       assignedAgent,
 		Timeout:     timeout,
 	}), nil
@@ -252,7 +255,7 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		var each *workflow.EachBlock
 		if step.Each != nil {
 			each = &workflow.EachBlock{
-				Array: step.Each.Array,
+				Items: step.Each.Items,
 				As:    step.Each.As,
 			}
 		}
@@ -271,6 +274,18 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			}
 		}
 
+		var output *dive.Output
+		if step.Output != nil {
+			output = &dive.Output{
+				Name:        step.Output.Name,
+				Type:        step.Output.Type,
+				Description: step.Output.Description,
+				Format:      step.Output.Format,
+				Default:     step.Output.Default,
+				Document:    step.Output.Document,
+			}
+		}
+
 		step := workflow.NewStep(workflow.StepOptions{
 			Name:    step.Name,
 			Task:    task,
@@ -278,6 +293,7 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 			With:    inputs,
 			Each:    each,
 			IsStart: step.IsStart,
+			Output:  output,
 		})
 		steps = append(steps, step)
 	}
@@ -296,9 +312,9 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		steps[0].SetIsStart(true)
 	}
 
-	inputs := make(map[string]dive.Input)
+	inputs := make(map[string]*dive.Input)
 	for name, input := range workflowDef.Inputs {
-		inputs[name] = dive.Input{
+		inputs[name] = &dive.Input{
 			Name:        name,
 			Type:        input.Type,
 			Description: input.Description,
@@ -307,14 +323,14 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		}
 	}
 
-	outputs := make(map[string]dive.Output)
-	for name, output := range workflowDef.Outputs {
-		outputs[name] = dive.Output{
-			Name:        name,
-			Type:        output.Type,
-			Description: output.Description,
-			Format:      output.Format,
-			Default:     output.Default,
+	var output *dive.Output
+	if workflowDef.Output != nil {
+		output = &dive.Output{
+			Name:        workflowDef.Output.Name,
+			Type:        workflowDef.Output.Type,
+			Description: workflowDef.Output.Description,
+			Format:      workflowDef.Output.Format,
+			Default:     workflowDef.Output.Default,
 		}
 	}
 
@@ -322,7 +338,7 @@ func buildWorkflow(workflowDef Workflow, tasks []*workflow.Task) (*workflow.Work
 		Name:        workflowDef.Name,
 		Description: workflowDef.Description,
 		Inputs:      inputs,
-		Outputs:     outputs,
+		Output:      output,
 		Steps:       steps,
 		Triggers:    triggers,
 	})

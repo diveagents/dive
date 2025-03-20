@@ -24,7 +24,7 @@ type Edge struct {
 }
 
 type EachBlock struct {
-	Array any
+	Items any
 	As    string
 }
 
@@ -33,6 +33,7 @@ type Step struct {
 	task     dive.Task
 	with     map[string]any
 	withCode map[string]*compiler.Code
+	output   *dive.Output
 	next     []*Edge
 	isStart  bool
 	each     *EachBlock
@@ -45,6 +46,7 @@ type StepOptions struct {
 	Next    []*Edge
 	IsStart bool
 	Each    *EachBlock
+	Output  *dive.Output
 }
 
 func NewStep(opts StepOptions) *Step {
@@ -55,6 +57,7 @@ func NewStep(opts StepOptions) *Step {
 		next:    opts.Next,
 		isStart: opts.IsStart,
 		each:    opts.Each,
+		output:  opts.Output,
 	}
 }
 
@@ -88,6 +91,10 @@ func (s *Step) Next() []*Edge {
 
 func (s *Step) Each() *EachBlock {
 	return s.each
+}
+
+func (s *Step) Output() *dive.Output {
+	return s.output
 }
 
 func (s *Step) Compile(ctx context.Context) error {

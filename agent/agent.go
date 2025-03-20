@@ -62,6 +62,7 @@ type AgentOptions struct {
 	ReasoningEffort    string
 	DateAwareness      *bool
 	Environment        dive.Environment
+	DocumentRepository document.Repository
 }
 
 // Agent is the standard implementation of the Agent interface.
@@ -95,6 +96,7 @@ type Agent struct {
 	reasoningEffort    string
 	dateAwareness      *bool
 	environment        dive.Environment
+	documentRepository document.Repository
 
 	// Holds incoming messages to be processed by the agent's run loop
 	mailbox chan interface{}
@@ -153,6 +155,7 @@ func NewAgent(opts AgentOptions) *Agent {
 		logger:             opts.Logger,
 		threads:            make(map[string]*chatThread),
 		dateAwareness:      opts.DateAwareness,
+		documentRepository: opts.DocumentRepository,
 	}
 
 	tools := make([]llm.Tool, len(opts.Tools))
@@ -732,66 +735,26 @@ func (a *Agent) generate(
 	return response, updatedMessages, nil
 }
 
-func (a *Agent) getTaskDocumentsMessage(ctx context.Context, task dive.Task) (*llm.Message, error) {
-	documents, err := a.loadTaskDocuments(ctx, task)
-	if err != nil {
-		return nil, err
-	}
-	if len(documents) == 0 {
-		return nil, nil
-	}
-	var parts []string
-	for _, doc := range documents {
-		text := fmt.Sprintf("<document id=%q name=%q>\n%s\n</document>",
-			doc.ID(), doc.Name(), doc.Content())
-		parts = append(parts, text)
-	}
-	return llm.NewUserMessage(strings.Join(parts, "\n\n")), nil
-}
+// func (a *Agent) getTaskDocumentsMessage(ctx context.Context, task dive.Task) (*llm.Message, error) {
+// 	documents, err := a.loadTaskDocuments(ctx, task)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if len(documents) == 0 {
+// 		return nil, nil
+// 	}
+// 	var parts []string
+// 	for _, doc := range documents {
+// 		text := fmt.Sprintf("<document id=%q name=%q>\n%s\n</document>",
+// 			doc.ID(), doc.Name(), doc.Content())
+// 		parts = append(parts, text)
+// 	}
+// 	return llm.NewUserMessage(strings.Join(parts, "\n\n")), nil
+// }
 
 func (a *Agent) TeamOverview() string {
 	// return a.environment.Team().Overview()
 	return ""
-}
-
-// loadTaskDocuments loads the content of documents referenced by a task
-func (a *Agent) loadTaskDocuments(ctx context.Context, task dive.Task) ([]document.Document, error) {
-	// if len(task.DocumentRefs()) == 0 {
-	// 	return nil, nil
-	// }
-	// var documents []document.Document
-	// for _, ref := range task.DocumentRefs() {
-	// 	var err error
-	// 	var doc document.Document
-	// 	if ref.Name != "" {
-	// 		doc, err = a.documentStore().GetDocument(ctx, ref.Name)
-	// 		if err != nil {
-	// 			return nil, fmt.Errorf("document with name %q not found", ref.Name)
-	// 		}
-	// 	} else if ref.Glob != "" {
-	// 		// Validate glob pattern can be used as path prefix
-	// 		if !strings.HasSuffix(ref.Glob, "/*") || strings.Contains(ref.Glob[:len(ref.Glob)-2], "*") {
-	// 			return nil, fmt.Errorf("invalid glob pattern %q - only trailing '/*' is supported", ref.Glob)
-	// 		}
-	// 		// Convert glob to path prefix by removing the trailing "/*"
-	// 		pathPrefix := ref.Glob[:len(ref.Glob)-2]
-	// 		docs, err := a.documentStore().ListDocuments(ctx, &document.ListDocumentInput{
-	// 			PathPrefix: pathPrefix,
-	// 		})
-	// 		if err != nil {
-	// 			return nil, fmt.Errorf("error listing documents with path prefix %q", pathPrefix)
-	// 		}
-	// 		documents = append(documents, docs.Items...)
-	// 	} else {
-	// 		return nil, fmt.Errorf("unsupported document reference: %q", ref)
-	// 	}
-	// 	documents = append(documents, doc)
-	// }
-	// if len(documents) == 0 {
-	// 	return nil, fmt.Errorf("no documents found for step %q", step.Name())
-	// }
-	var documents []document.Document
-	return documents, nil
 }
 
 func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
@@ -819,10 +782,10 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		return err
 	}
 
-	documentsMessage, err := a.getTaskDocumentsMessage(ctx, task)
-	if err != nil {
-		return err
-	}
+	// documentsMessage, err := a.getTaskDocumentsMessage(ctx, task)
+	// if err != nil {
+	// 	return err
+	// }
 
 	var prompt string
 	messages := []*llm.Message{}
@@ -832,9 +795,9 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		if recentTasksMessage, ok := a.getTasksHistoryMessage(); ok {
 			messages = append(messages, recentTasksMessage)
 		}
-		if documentsMessage != nil {
-			messages = append(messages, documentsMessage)
-		}
+		// if documentsMessage != nil {
+		// 	messages = append(messages, documentsMessage)
+		// }
 		var err error
 		prompt, err = task.Prompt(dive.TaskPromptOptions{
 			Context: "", // TODO
@@ -871,7 +834,66 @@ func (a *Agent) handleTask(ctx context.Context, state *taskState) error {
 		"status", state.Status,
 		"status_description", state.StatusDescription(),
 	)
+
+	if state.Status == dive.TaskStatusCompleted {
+		if err := a.saveOutput(ctx, task, state, logger); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (a *Agent) getDocumentRepository() (document.Repository, bool) {
+	if a.documentRepository != nil {
+		return a.documentRepository, true
+	}
+	if a.environment != nil {
+		repo := a.environment.DocumentRepository()
+		if repo != nil {
+			return repo, true
+		}
+	}
+	return nil, false
+}
+
+func (a *Agent) saveOutput(ctx context.Context, task dive.Task, state *taskState, logger slogger.Logger) error {
+	output := task.Output()
+	if output == nil {
+		return nil
+	}
+	repo, ok := a.getDocumentRepository()
+	if !ok {
+		return fmt.Errorf("no document repository available")
+	}
+	if output.Document == "" {
+		return nil
+	}
+	// Look up the path for the document with that name
+	docMeta, ok := a.getDocumentMetadata(output.Document)
+	if !ok {
+		return fmt.Errorf("document not found: %q", output.Document)
+	}
+	doc, err := repo.GetDocument(ctx, docMeta.Path)
+	if err != nil {
+		return err
+	}
+	doc.SetContent(state.LastOutput())
+	if err := repo.PutDocument(ctx, doc); err != nil {
+		return err
+	}
+	logger.Info("saved output document", "document", output.Document)
+	return nil
+}
+
+func (a *Agent) getDocumentMetadata(docName string) (*document.Metadata, bool) {
+	if a.environment == nil {
+		return nil, false
+	}
+	docMeta, ok := a.environment.KnownDocuments()[docName]
+	if !ok {
+		return nil, false
+	}
+	return docMeta, true
 }
 
 func (a *Agent) eventOrigin() dive.EventOrigin {
@@ -958,11 +980,6 @@ func (a *Agent) doSomeWork() {
 
 	case dive.TaskStatusCompleted:
 		a.rememberTask(a.activeTask)
-		a.logger.Debug("task completed",
-			"agent", a.name,
-			"task", a.activeTask.Task.Name(),
-			"duration", time.Since(a.activeTask.Started).Seconds(),
-		)
 		safePublish(&dive.Event{
 			Type:   "task.result",
 			Origin: a.eventOrigin(),

@@ -30,6 +30,15 @@ type Document interface {
 	Version() int
 	Content() string
 	ContentType() string
-	Tags() []string
 	Chunks() []*Chunk
+	SetContent(content string) error
+}
+
+// Metadata for a document
+type Metadata struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Version     int    `json:"version,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
 }

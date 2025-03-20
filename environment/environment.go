@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/getstingrai/dive"
+	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
 	"github.com/google/uuid"
@@ -22,6 +23,8 @@ type Environment struct {
 	executions      map[string]*Execution
 	logger          slogger.Logger
 	defaultWorkflow string
+	documentRepo    document.Repository
+	knownDocuments  map[string]*document.Metadata
 }
 
 // EnvironmentOptions configures a new environment
@@ -35,6 +38,8 @@ type EnvironmentOptions struct {
 	Executions      []*Execution
 	Logger          slogger.Logger
 	DefaultWorkflow string
+	DocumentRepo    document.Repository
+	KnownDocuments  map[string]*document.Metadata
 }
 
 // New creates a new Environment instance
@@ -83,6 +88,8 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 		executions:      executions,
 		logger:          opts.Logger,
 		defaultWorkflow: opts.DefaultWorkflow,
+		documentRepo:    opts.DocumentRepo,
+		knownDocuments:  opts.KnownDocuments,
 	}
 
 	for _, trigger := range env.triggers {
@@ -112,6 +119,14 @@ func (e *Environment) Name() string {
 
 func (e *Environment) Description() string {
 	return e.description
+}
+
+func (e *Environment) DocumentRepository() document.Repository {
+	return e.documentRepo
+}
+
+func (e *Environment) KnownDocuments() map[string]*document.Metadata {
+	return e.knownDocuments
 }
 
 func (e *Environment) Stop(ctx context.Context) {
