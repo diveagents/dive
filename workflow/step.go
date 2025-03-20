@@ -117,7 +117,8 @@ func (s *Step) Compile(ctx context.Context) error {
 		trimmedValue := strings.TrimPrefix(strValue, "$(")
 		trimmedValue = strings.TrimSuffix(trimmedValue, ")")
 		code, err := compileScript(ctx, trimmedValue, map[string]any{
-			"inputs": nil,
+			"inputs":    nil,
+			"documents": nil,
 		})
 		if err != nil {
 			return fmt.Errorf("step: %q variable: %q error: %w", s.name, name, err)

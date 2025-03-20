@@ -12,6 +12,7 @@ import (
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/document"
 	"github.com/getstingrai/dive/environment"
+	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
 	"gopkg.in/yaml.v3"
 )
@@ -78,6 +79,14 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		opt(buildOpts)
 	}
 
+	var logger slogger.Logger = slogger.DefaultLogger
+	if buildOpts.Logger != nil {
+		logger = buildOpts.Logger
+	} else if env.Config.Logging.Level != "" {
+		level := slogger.LevelFromString(env.Config.Logging.Level)
+		logger = slogger.New(level)
+	}
+
 	// Tools
 	var toolConfigs map[string]map[string]interface{}
 	if env.Tools != nil {
@@ -103,7 +112,7 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		if agentDef.Name == "" {
 			agentDef.Name = name
 		}
-		agent, err := buildAgent(agentDef, env.Config, toolsMap, buildOpts.Logger)
+		agent, err := buildAgent(agentDef, env.Config, toolsMap, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build agent %s: %w", agentDef.Name, err)
 		}
@@ -213,7 +222,7 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		Agents:         agents,
 		Workflows:      workflows,
 		Triggers:       triggers,
-		Logger:         buildOpts.Logger,
+		Logger:         logger,
 		DocumentRepo:   repo,
 		KnownDocuments: knownDocuments,
 	})

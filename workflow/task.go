@@ -49,7 +49,8 @@ func NewTask(opts TaskOptions) *Task {
 	var descErr error
 	var descTemplate *eval.String
 	descTemplate, descErr = eval.NewString(opts.Description, map[string]any{
-		"inputs": nil,
+		"inputs":    nil,
+		"documents": nil,
 	})
 	return &Task{
 		name:         opts.Name,

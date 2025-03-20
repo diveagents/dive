@@ -9,7 +9,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/getstingrai/dive/config"
-	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
 )
 
@@ -23,10 +22,8 @@ func fatal(msg string, args ...interface{}) {
 }
 
 func main() {
-	var logLevel, varsFlag, outDir, workflowName string
-	flag.StringVar(&logLevel, "log-level", "debug", "Log level (debug, info, warn, error)")
+	var varsFlag, workflowName string
 	flag.StringVar(&varsFlag, "vars", "", "Comma-separated list of variables in format key=value")
-	flag.StringVar(&outDir, "output", "", "Output directory for task results")
 	flag.StringVar(&workflowName, "workflow", "", "Workflow name")
 	flag.Parse()
 
@@ -52,7 +49,7 @@ func main() {
 
 	ctx := context.Background()
 
-	env, err := config.LoadDirectory(filePath, config.WithLogger(slogger.New(slogger.LevelDebug)))
+	env, err := config.LoadDirectory(filePath)
 	if err != nil {
 		fatal(err.Error())
 	}

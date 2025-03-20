@@ -6,7 +6,7 @@ config:
     default_provider: 'anthropic'
     default_model: 'claude-3-7-sonnet-20250219'
   logging:
-    log_level: 'info'
+    level: 'info'
 
 tools:
   google_search:
@@ -28,12 +28,15 @@ agents:
       - file_read
 
 documents:
-  file-list:
+  file_list:
     description: 'List of files in a directory'
-    path: './output/file-list.txt'
+    path: './output/file_list.txt'
+  summary:
+    description: 'Summary of the results'
+    path: './output/summary.txt'
 
 tasks:
-  list-files:
+  list_files:
     description: 'List all files in the directory: ${inputs.directory}'
     agent: engineer
     inputs:
@@ -56,17 +59,19 @@ tasks:
         description: 'The results to summarize'
 
 workflows:
-  list-files:
+  list_files:
     description: 'List all files in a directory'
     steps:
       - name: 'List Files Here'
-        task: list-files
+        task: list_files
         each:
           items: ['./workflow', './retry']
           as: 'directory'
         output:
-          document: file-list
+          document: file_list
       - name: 'Summary'
         task: summary
         with:
-          results: '${list-files.output.document}'
+          results: $(documents.get("./output/file_list.txt").content)
+        output:
+          document: summary

@@ -10,6 +10,7 @@ import (
 
 	"github.com/getstingrai/dive"
 	"github.com/getstingrai/dive/llm"
+	"github.com/getstingrai/dive/objects"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/getstingrai/dive/workflow"
 	"github.com/risor-io/risor"
@@ -318,6 +319,13 @@ func (e *Execution) processTaskInputs(
 		withCopy[k] = v
 	}
 
+	globals := map[string]any{
+		"inputs": e.inputs,
+	}
+	if repo := e.environment.DocumentRepository(); repo != nil {
+		globals["documents"] = objects.NewDocumentRepository(repo)
+	}
+
 	// Determine task inputs
 	processedInputs := make(map[string]interface{})
 	for name, input := range taskInputs {
@@ -329,9 +337,7 @@ func (e *Execution) processTaskInputs(
 			value = input.Default
 		}
 		if code, ok := currentStep.Code(name); ok {
-			result, err := eval(ctx, code, map[string]any{
-				"inputs": e.inputs,
-			})
+			result, err := eval(ctx, code, globals)
 			if err != nil {
 				return nil, fmt.Errorf("failed to evaluate code for input %q: %w", name, err)
 			}
@@ -594,7 +600,7 @@ func (e *Execution) runPath(ctx context.Context, graph *workflow.Graph, path *ex
 		return fmt.Sprintf("%s-%d", path.id, nextPathID)
 	}
 
-	logger := slogger.Ctx(ctx).
+	logger := e.logger.
 		With("path_id", path.id).
 		With("execution_id", e.id)
 
@@ -844,10 +850,8 @@ func executeTask(ctx context.Context, agent dive.Agent, task dive.Task, inputs m
 	return taskResult, nil
 }
 
-func eval(ctx context.Context, code *compiler.Code, inputs map[string]any) (any, error) {
-	result, err := risor.EvalCode(ctx, code, risor.WithGlobals(map[string]any{
-		"inputs": inputs,
-	}))
+func eval(ctx context.Context, code *compiler.Code, globals map[string]any) (any, error) {
+	result, err := risor.EvalCode(ctx, code, risor.WithGlobals(globals))
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate code: %w", err)
 	}
