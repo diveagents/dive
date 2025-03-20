@@ -41,10 +41,12 @@ func main() {
 	}
 	defer researcher.Stop(ctx)
 
-	stream, err := researcher.Work(ctx, workflow.NewTask(workflow.TaskOptions{
+	task := workflow.NewTask(workflow.TaskOptions{
 		Name:        "Research the history of computing",
 		Description: "Briefly research the history of computing and summarize in 3 paragraphs",
-	}))
+	})
+
+	stream, err := researcher.Work(ctx, task, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

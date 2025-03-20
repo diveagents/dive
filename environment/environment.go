@@ -42,6 +42,9 @@ func New(opts EnvironmentOptions) (*Environment, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("environment name is required")
 	}
+	if opts.Logger == nil {
+		opts.Logger = slogger.DefaultLogger
+	}
 
 	agents := make(map[string]dive.Agent, len(opts.Agents))
 	for _, agent := range opts.Agents {

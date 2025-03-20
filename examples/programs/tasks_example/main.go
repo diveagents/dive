@@ -90,7 +90,7 @@ func main() {
 		},
 	})
 
-	iterator, err := a.Work(ctx, task)
+	iterator, err := a.Work(ctx, task, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

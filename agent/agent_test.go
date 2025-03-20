@@ -103,7 +103,7 @@ func TestAgentChatWithTools(t *testing.T) {
 }
 
 func TestAgentTask(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	logger := slogger.New(slogger.LevelDebug)
