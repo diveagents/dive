@@ -8,6 +8,7 @@ import (
 	"bytes"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/getstingrai/dive/llm"
@@ -41,6 +42,17 @@ func New(opts ...Option) *Provider {
 	for _, opt := range opts {
 		opt(p)
 	}
+
+	// Load AWS configuration
+	sdkConfig, err := config.LoadDefaultConfig(context.Background(), config.WithRegion("us-east-1"))
+	if err != nil {
+		fmt.Println("Couldn't load default configuration. Have you set up your AWS account?")
+		fmt.Println(err)
+		panic(err)
+	}
+
+	client := bedrockruntime.NewFromConfig(sdkConfig)
+	p.client = client
 	return p
 }
 

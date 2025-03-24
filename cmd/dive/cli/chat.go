@@ -81,7 +81,26 @@ func chatMessage(ctx context.Context, message string, agent dive.Agent) error {
 	return nil
 }
 
+<<<<<<< HEAD
 var DefaultChatBackstory = `You are a helpful AI assistant. You aim to be direct, clear, and helpful in your responses.`
+=======
+func getProvider() (llm.LLM, error) {
+	switch llmProvider {
+	case "", "anthropic":
+		return anthropic.New(anthropic.WithModel(llmModel)), nil
+	case "openai":
+		return openai.New(openai.WithModel(llmModel)), nil
+	case "groq":
+		return groq.New(groq.WithModel(llmModel)), nil
+	case "bedrock":
+		return bedrock.New(bedrock.WithModel(llmModel)), nil
+	case "vertex":
+		return vertex.New(vertex.WithModel(llmModel)), nil
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", llmProvider)
+	}
+}
+>>>>>>> 9ed2d00 (checkpoint)
 
 func runChat(instructions, agentName string, reasoningBudget int) error {
 	ctx := context.Background()
