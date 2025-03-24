@@ -12,8 +12,10 @@ import (
 	"github.com/getstingrai/dive/agent"
 	"github.com/getstingrai/dive/llm"
 	"github.com/getstingrai/dive/providers/anthropic"
+	"github.com/getstingrai/dive/providers/bedrock"
 	"github.com/getstingrai/dive/providers/groq"
 	"github.com/getstingrai/dive/providers/openai"
+	"github.com/getstingrai/dive/providers/vertex"
 	"github.com/getstingrai/dive/slogger"
 	"github.com/spf13/cobra"
 )
@@ -86,6 +88,10 @@ func getProvider() (llm.LLM, error) {
 		return openai.New(openai.WithModel(llmModel)), nil
 	case "groq":
 		return groq.New(groq.WithModel(llmModel)), nil
+	case "bedrock":
+		return bedrock.New(bedrock.WithModel(llmModel)), nil
+	case "vertex":
+		return vertex.New(vertex.WithModel(llmModel)), nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", llmProvider)
 	}
