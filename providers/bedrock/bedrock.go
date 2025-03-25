@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"bytes"
 
@@ -14,7 +15,12 @@ import (
 	"github.com/getstingrai/dive/llm"
 )
 
-var _ llm.StreamingLLM = &Provider{}
+// var _ llm.StreamingLLM = &Provider{}
+
+const (
+	ModelTypeClaude = "anthropic"
+	ModelTypeTitan  = "amazon"
+)
 
 type Provider struct {
 	client *bedrockruntime.Client
@@ -110,6 +116,12 @@ func (p *Provider) Generate(ctx context.Context, messages []*llm.Message, opts .
 		reqBody.Temperature = *config.Temperature
 	}
 
+	modelType := getModelType(model)
+	reqBody, err = buildRequest(messages, *maxTokens, reqBody.Temperature, false, modelType)
+	if err != nil {
+		return nil, fmt.Errorf("error building request: %w", err)
+	}
+
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling request: %w", err)
@@ -128,6 +140,8 @@ func (p *Provider) Generate(ctx context.Context, messages []*llm.Message, opts .
 	if err := json.Unmarshal(output.Body, &result); err != nil {
 		return nil, fmt.Errorf("error decoding response: %w", err)
 	}
+
+	fmt.Printf("result: %+v\n", result)
 
 	response := llm.NewResponse(llm.ResponseOptions{
 		Model: model,
@@ -148,78 +162,86 @@ func (p *Provider) Generate(ctx context.Context, messages []*llm.Message, opts .
 	return response, nil
 }
 
-func (p *Provider) Stream(ctx context.Context, messages []*llm.Message, opts ...llm.Option) (llm.StreamIterator, error) {
-	config := &llm.Config{}
-	for _, opt := range opts {
-		opt(config)
-	}
+// func (p *Provider) Stream(ctx context.Context, messages []*llm.Message, opts ...llm.Option) (llm.StreamIterator, error) {
+// 	config := &llm.Config{}
+// 	for _, opt := range opts {
+// 		opt(config)
+// 	}
 
-	model := config.Model
-	if model == "" {
-		model = p.model
-	}
+// 	model := config.Model
+// 	if model == "" {
+// 		model = p.model
+// 	}
 
-	maxTokens := config.MaxTokens
-	if maxTokens == nil {
-		maxTokens = new(int)
-		*maxTokens = 4096 // Default max tokens
-	}
+// 	maxTokens := config.MaxTokens
+// 	if maxTokens == nil {
+// 		maxTokens = new(int)
+// 		*maxTokens = 4096 // Default max tokens
+// 	}
 
-	messageCount := len(messages)
-	if messageCount == 0 {
-		return nil, fmt.Errorf("no messages provided")
-	}
-	for i, message := range messages {
-		if len(message.Content) == 0 {
-			return nil, fmt.Errorf("empty message detected (index %d)", i)
-		}
-	}
+// 	messageCount := len(messages)
+// 	if messageCount == 0 {
+// 		return nil, fmt.Errorf("no messages provided")
+// 	}
+// 	for i, message := range messages {
+// 		if len(message.Content) == 0 {
+// 			return nil, fmt.Errorf("empty message detected (index %d)", i)
+// 		}
+// 	}
 
-	// Convert messages to Anthropic format
-	prompt, err := convertMessages(messages)
-	if err != nil {
-		return nil, fmt.Errorf("error converting messages: %w", err)
-	}
+// 	// Convert messages to Anthropic format
+// 	prompt, err := convertMessages(messages)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error converting messages: %w", err)
+// 	}
 
-	reqBody := Request{
-		Prompt:            prompt,
-		MaxTokensToSample: *maxTokens,
-		Temperature:       0.7,
-		Stream:            true,
-	}
+// 	reqBody := Request{
+// 		Prompt:            prompt,
+// 		MaxTokensToSample: *maxTokens,
+// 		Temperature:       0.7,
+// 		Stream:            true,
+// 	}
 
-	if config.Temperature != nil {
-		reqBody.Temperature = *config.Temperature
-	}
+// 	if config.Temperature != nil {
+// 		reqBody.Temperature = *config.Temperature
+// 	}
 
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling request: %w", err)
-	}
+// 	modelType := getModelType(model)
+// 	reqBody, err = buildRequest(messages, *maxTokens, reqBody.Temperature, true, modelType)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error building request: %w", err)
+// 	}
 
-	output, err := p.client.InvokeModelWithResponseStream(ctx, &bedrockruntime.InvokeModelWithResponseStreamInput{
-		ModelId:     aws.String(model),
-		ContentType: aws.String("application/json"),
-		Body:        jsonBody,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error invoking model: %w", err)
-	}
+// 	jsonBody, err := json.Marshal(reqBody)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error marshaling request: %w", err)
+// 	}
 
-	return NewStreamIterator(output), nil
-}
+// 	output, err := p.client.InvokeModelWithResponseStream(ctx, &bedrockruntime.InvokeModelWithResponseStreamInput{
+// 		ModelId:     aws.String(model),
+// 		ContentType: aws.String("application/json"),
+// 		Body:        jsonBody,
+// 	})
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error invoking model: %w", err)
+// 	}
+
+// 	return NewStreamIterator(output), nil
+// }
 
 func (p *Provider) SupportsStreaming() bool {
-	return true
+	return false
 }
 
 // Helper types and functions
 type Request struct {
-	Prompt            string   `json:"prompt"`
-	MaxTokensToSample int      `json:"max_tokens_to_sample"`
-	Temperature       float64  `json:"temperature,omitempty"`
-	StopSequences     []string `json:"stop_sequences,omitempty"`
-	Stream            bool     `json:"stream,omitempty"`
+	Prompt            string    `json:"prompt,omitempty"`
+	MaxTokensToSample int       `json:"max_tokens_to_sample,omitempty"`
+	Messages          []Message `json:"messages,omitempty"`
+	MaxTokens         int       `json:"max_tokens,omitempty"`
+	Temperature       float64   `json:"temperature,omitempty"`
+	StopSequences     []string  `json:"stop_sequences,omitempty"`
+	Stream            bool      `json:"stream,omitempty"`
 }
 
 type Response struct {
@@ -325,4 +347,60 @@ func convertMessages(messages []*llm.Message) (string, error) {
 	}
 	prompt += "\n\nAssistant:"
 	return prompt, nil
+}
+
+func getModelType(model string) string {
+	if strings.HasPrefix(model, "anthropic.") {
+		return ModelTypeClaude
+	}
+	if strings.HasPrefix(model, "amazon.") {
+		return ModelTypeTitan
+	}
+	return ModelTypeClaude // default to Claude format
+}
+
+// Add a new struct for the content
+type MessageContent struct {
+	Text string `json:"text"`
+}
+
+type Message struct {
+	Role    string           `json:"role"`
+	Content []MessageContent `json:"content"` // Changed to []MessageContent
+}
+
+func buildRequest(messages []*llm.Message, maxTokens int, temperature float64, stream bool, modelType string) (Request, error) {
+	req := Request{}
+
+	switch modelType {
+	case ModelTypeTitan:
+		var titanMessages []Message
+		for _, msg := range messages {
+			role := "user"
+			if msg.Role == llm.Assistant {
+				role = "assistant"
+			} else if msg.Role == llm.System {
+				role = "system"
+			}
+			titanMessages = append(titanMessages, Message{
+				Role: role,
+				Content: []MessageContent{
+					{Text: msg.CompleteText()},
+				},
+			})
+		}
+		req.Messages = titanMessages
+
+	default: // Claude format
+		req.MaxTokensToSample = maxTokens
+		req.Stream = stream
+		req.Temperature = temperature
+		prompt, err := convertMessages(messages)
+		if err != nil {
+			return Request{}, err
+		}
+		req.Prompt = prompt
+	}
+
+	return req, nil
 }
