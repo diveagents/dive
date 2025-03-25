@@ -29,52 +29,61 @@ var (
 func chatMessage(ctx context.Context, message string, agent dive.Agent) error {
 	fmt.Print(boldStyle.Sprintf("%s: ", agent.Name()))
 
-	iterator, err := agent.Stream(ctx,
+	response, err := agent.Generate(ctx,
 		llm.NewUserMessage(message),
 		dive.WithThreadID("chat"),
 	)
 	if err != nil {
 		return fmt.Errorf("error generating response: %v", err)
 	}
-	defer iterator.Close()
+	fmt.Println(response.Message().Text())
 
-	var inToolUse bool
-	toolUseAccum := ""
-	toolName := ""
-	toolID := ""
+	// iterator, err := agent.Stream(ctx,
+	// 	llm.NewUserMessage(message),
+	// 	dive.WithThreadID("chat"),
+	// )
+	// if err != nil {
+	// 	return fmt.Errorf("error generating response: %v", err)
+	// }
+	// defer iterator.Close()
 
-	for iterator.Next(ctx) {
-		event := iterator.Event()
-		switch payload := event.Payload.(type) {
-		case *llm.Event:
-			if payload.ContentBlock != nil {
-				cb := payload.ContentBlock
-				if cb.Type == "tool_use" {
-					toolName = cb.Name
-					toolID = cb.ID
-				}
-			}
-			if payload.Delta != nil {
-				delta := payload.Delta
-				if delta.PartialJSON != "" {
-					if !inToolUse {
-						inToolUse = true
-						fmt.Println("\n----")
-					}
-					toolUseAccum += delta.PartialJSON
-				} else if delta.Text != "" {
-					if inToolUse {
-						fmt.Println(toolName, toolID)
-						fmt.Println(toolUseAccum)
-						fmt.Println("----")
-						inToolUse = false
-						toolUseAccum = ""
-					}
-					fmt.Print(successStyle.Sprint(delta.Text))
-				}
-			}
-		}
-	}
+	// var inToolUse bool
+	// toolUseAccum := ""
+	// toolName := ""
+	// toolID := ""
+
+	// for iterator.Next(ctx) {
+	// 	event := iterator.Event()
+	// 	switch payload := event.Payload.(type) {
+	// 	case *llm.Event:
+	// 		if payload.ContentBlock != nil {
+	// 			cb := payload.ContentBlock
+	// 			if cb.Type == "tool_use" {
+	// 				toolName = cb.Name
+	// 				toolID = cb.ID
+	// 			}
+	// 		}
+	// 		if payload.Delta != nil {
+	// 			delta := payload.Delta
+	// 			if delta.PartialJSON != "" {
+	// 				if !inToolUse {
+	// 					inToolUse = true
+	// 					fmt.Println("\n----")
+	// 				}
+	// 				toolUseAccum += delta.PartialJSON
+	// 			} else if delta.Text != "" {
+	// 				if inToolUse {
+	// 					fmt.Println(toolName, toolID)
+	// 					fmt.Println(toolUseAccum)
+	// 					fmt.Println("----")
+	// 					inToolUse = false
+	// 					toolUseAccum = ""
+	// 				}
+	// 				fmt.Print(successStyle.Sprint(delta.Text))
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	fmt.Println()
 	return nil
