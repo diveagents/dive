@@ -38,6 +38,15 @@ const (
 	EventTypeTaskCompleted       EventType = "task.completed"
 	EventTypeTaskError           EventType = "task.error"
 	EventTypeError               EventType = "error"
+
+	// New Response event types
+	EventTypeResponseCreated         EventType = "response.created"
+	EventTypeResponseInProgress      EventType = "response.in_progress"
+	EventTypeResponseCompleted       EventType = "response.completed"
+	EventTypeResponseFailed          EventType = "response.failed"
+	EventTypeResponseOutputTextDelta EventType = "response.output_text.delta"
+	EventTypeResponseToolCallStart   EventType = "response.tool_call.start"
+	EventTypeResponseToolCallEnd     EventType = "response.tool_call.end"
 )
 
 func (t EventType) String() string {
@@ -57,12 +66,18 @@ type Event struct {
 
 	// Payload contains arbitrary data associated with the Event
 	Payload any `json:"payload,omitempty"`
+
+	// TextDelta contains the text fragment for text delta events
+	TextDelta string `json:"text_delta,omitempty"`
+
+	// Response contains the complete response for response completed events
+	Response *Response `json:"response,omitempty"`
 }
 
-// EventStream is an interface used to consume events from Agents and Workflows.
-// An EventStream should be consumed by a single goroutine. These functions are
+// ResponseStream is an interface used to consume events from Agents and Workflows.
+// An ResponseStream should be consumed by a single goroutine. These functions are
 // not thread safe.
-type EventStream interface {
+type ResponseStream interface {
 	// Next advances the stream to the next event. It returns false when the stream
 	// is complete or if an error occurs. The caller should check Err() after Next
 	// returns false to distinguish between normal completion and errors.
@@ -93,7 +108,7 @@ type EventPublisher interface {
 
 // ReadEventPayloads waits for and returns all events with a payload of the specified type.
 // It will return an error if the context is canceled or if an error event is received.
-func ReadEventPayloads[T any](ctx context.Context, stream EventStream) ([]T, error) {
+func ReadEventPayloads[T any](ctx context.Context, stream ResponseStream) ([]T, error) {
 	var results []T
 	for stream.Next(ctx) {
 		event := stream.Event()
@@ -115,7 +130,7 @@ func ReadEventPayloads[T any](ctx context.Context, stream EventStream) ([]T, err
 
 // ReadMessages returns all messages generated in an interaction. This will include
 // both assistant messages and tool result messages.
-func ReadMessages(ctx context.Context, stream EventStream) ([]*llm.Message, error) {
+func ReadMessages(ctx context.Context, stream ResponseStream) ([]*llm.Message, error) {
 	for stream.Next(ctx) {
 		event := stream.Event()
 		if event == nil {
@@ -145,7 +160,7 @@ type eventStream struct {
 }
 
 // NewEventStream returns a new event stream and a publisher for the stream.
-func NewEventStream() (EventStream, EventPublisher) {
+func NewEventStream() (ResponseStream, EventPublisher) {
 	s := &eventStream{ch: make(chan *Event, 16)}
 	p := &eventPublisher{
 		stream: s,

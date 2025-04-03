@@ -145,8 +145,13 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 		},
 	})
 
+	prompt, err := task.Prompt()
+	if err != nil {
+		return fmt.Sprintf("This assignment could not be started: %s", err.Error()), nil
+	}
+
 	// Tell the agent to work on the task
-	iterator, err := agent.Work(ctx, task)
+	iterator, err := agent.StreamResponse(ctx, dive.WithInput(prompt.Text))
 	if err != nil {
 		return fmt.Sprintf("This assignment could not be started: %s", err.Error()), nil
 	}

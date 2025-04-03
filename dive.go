@@ -66,6 +66,21 @@ type Prompt struct {
 	OutputFormat OutputFormat     `json:"output_format,omitempty"`
 }
 
+// Response represents the output from an Agent's generation.
+type Response struct {
+	// Text is the primary text content of the response
+	Text string `json:"text,omitempty"`
+
+	// Model represents the model that generated the response
+	Model string `json:"model,omitempty"`
+
+	// TokenUsage contains token usage information
+	TokenUsage *llm.Usage `json:"token_usage,omitempty"`
+
+	// Raw contains the underlying raw LLM response
+	Raw *llm.Response `json:"raw,omitempty"`
+}
+
 // Agent represents an intelligent agent that can work on tasks and respond to
 // chat messages.
 type Agent interface {
@@ -82,25 +97,11 @@ type Agent interface {
 	// SetEnvironment sets the runtime Environment to which this Agent belongs
 	SetEnvironment(env Environment) error
 
-	// Chat gives the agent messages to respond to and returns a stream of events
-	Chat(ctx context.Context, messages []*llm.Message, opts ...ChatOption) (EventStream, error)
+	// CreateResponse creates a new Response from the Agent
+	CreateResponse(ctx context.Context, opts ...ChatOption) (*Response, error)
 
-	// Work gives the agent a task to complete
-	Work(ctx context.Context, task Task) (EventStream, error)
-}
-
-// RunnableAgent is an agent that must be started and stopped.
-type RunnableAgent interface {
-	Agent
-
-	// Start the agent
-	Start(ctx context.Context) error
-
-	// Stop the agent
-	Stop(ctx context.Context) error
-
-	// IsRunning returns true if the agent is running
-	IsRunning() bool
+	// StreamResponse streams a new Response from the Agent
+	StreamResponse(ctx context.Context, opts ...ChatOption) (ResponseStream, error)
 }
 
 // Environment is a container for running Agents and Workflows. Interactivity
@@ -130,6 +131,8 @@ type Environment interface {
 type ChatOptions struct {
 	ThreadID string
 	UserID   string
+	Messages []*llm.Message
+	Input    string
 }
 
 // ChatOption is a type signature for defining new LLM generation options.
@@ -155,6 +158,21 @@ func WithThreadID(threadID string) ChatOption {
 func WithUserID(userID string) ChatOption {
 	return func(opts *ChatOptions) {
 		opts.UserID = userID
+	}
+}
+
+// WithMessages specifies the messages to be used in the generation.
+func WithMessages(messages []*llm.Message) ChatOption {
+	return func(opts *ChatOptions) {
+		opts.Messages = messages
+	}
+}
+
+// WithInput specifies a simple text input string to be used in the generation.
+// This is a convenience wrapper that creates a single user message.
+func WithInput(input string) ChatOption {
+	return func(opts *ChatOptions) {
+		opts.Input = input
 	}
 }
 
