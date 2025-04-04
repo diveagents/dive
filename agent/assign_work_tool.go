@@ -162,10 +162,15 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 		if event.Error != nil {
 			return "", event.Error
 		}
-		switch payload := event.Payload.(type) {
-		case *dive.TaskResult:
-			return payload.Content, nil
-		default:
+
+		// Check for Item which contains the message or result
+		if event.Type == dive.EventTypeResponseCompleted && event.Response != nil {
+			// Process completed response
+			for _, item := range event.Response.Items {
+				if item.Type == dive.ResponseItemTypeMessage && item.Message != nil {
+					return item.Message.Text(), nil
+				}
+			}
 		}
 	}
 

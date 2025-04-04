@@ -43,21 +43,12 @@ func buildAgent(
 		agentTools = append(agentTools, tool)
 	}
 
-	var chatTimeout time.Duration
-	if agentDef.ChatTimeout != "" {
+	var responseTimeout time.Duration
+	if agentDef.ResponseTimeout != "" {
 		var err error
-		chatTimeout, err = time.ParseDuration(agentDef.ChatTimeout)
+		responseTimeout, err = time.ParseDuration(agentDef.ResponseTimeout)
 		if err != nil {
-			return nil, fmt.Errorf("invalid chat timeout: %w", err)
-		}
-	}
-
-	var taskTimeout time.Duration
-	if agentDef.TaskTimeout != "" {
-		var err error
-		taskTimeout, err = time.ParseDuration(agentDef.TaskTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("invalid task timeout: %w", err)
+			return nil, fmt.Errorf("invalid response timeout: %w", err)
 		}
 	}
 
@@ -74,9 +65,7 @@ func buildAgent(
 		Subordinates:       agentDef.Subordinates,
 		Model:              model,
 		Tools:              agentTools,
-		ChatTimeout:        chatTimeout,
-		TaskTimeout:        taskTimeout,
-		Logger:             logger,
+		ResponseTimeout:    responseTimeout,
 		ToolIterationLimit: agentDef.ToolIterationLimit,
 	})
 }

@@ -46,10 +46,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := researcher.Start(ctx); err != nil {
-		log.Fatal(err)
-	}
-	defer researcher.Stop(ctx)
 
 	task := agent.NewTask(agent.TaskOptions{
 		Timeout: 10 * time.Second,
@@ -60,18 +56,16 @@ func main() {
 		},
 	})
 
-	stream, err := researcher.Work(ctx, task)
+	prompt, err := task.Prompt()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer stream.Close()
 
-	results, err := dive.ReadEventPayloads[*dive.TaskResult](ctx, stream)
+	response, err := researcher.CreateResponse(ctx,
+		dive.WithInput(prompt.Text),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if len(results) == 0 {
-		log.Fatal("stream ended without a task result")
-	}
-	fmt.Println(results[0].Content)
+	fmt.Println(response.Text)
 }

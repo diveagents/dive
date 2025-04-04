@@ -63,12 +63,10 @@ to answer non-medical questions. Use maximum medical jargon.`,
 		},
 		ThreadRepository: agent.NewMemoryThreadRepository(),
 		Logger:           logger,
-		AutoStart:        true,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer a.Stop(ctx)
 
 	for {
 		reader := bufio.NewReader(os.Stdin)
@@ -85,7 +83,10 @@ to answer non-medical questions. Use maximum medical jargon.`,
 			continue
 		}
 		messages := llm.Messages{llm.NewUserMessage(message)}
-		stream, err := a.Chat(ctx, messages, dive.WithThreadID("1"))
+		stream, err := a.StreamResponse(ctx,
+			dive.WithMessages(messages),
+			dive.WithThreadID("1"),
+		)
 		if err != nil {
 			log.Fatal(err)
 		}

@@ -56,8 +56,7 @@ type Agent struct {
 	Tools              []string       `yaml:"Tools,omitempty" json:"Tools,omitempty"`
 	IsSupervisor       bool           `yaml:"IsSupervisor,omitempty" json:"IsSupervisor,omitempty"`
 	Subordinates       []string       `yaml:"Subordinates,omitempty" json:"Subordinates,omitempty"`
-	TaskTimeout        string         `yaml:"TaskTimeout,omitempty" json:"TaskTimeout,omitempty"`
-	ChatTimeout        string         `yaml:"ChatTimeout,omitempty" json:"ChatTimeout,omitempty"`
+	ResponseTimeout    string         `yaml:"ResponseTimeout,omitempty" json:"ResponseTimeout,omitempty"`
 	LogLevel           string         `yaml:"LogLevel,omitempty" json:"LogLevel,omitempty"`
 	ToolConfig         map[string]any `yaml:"ToolConfig,omitempty" json:"ToolConfig,omitempty"`
 	ToolIterationLimit int            `yaml:"ToolIterationLimit,omitempty" json:"ToolIterationLimit,omitempty"`

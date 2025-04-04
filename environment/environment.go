@@ -154,22 +154,12 @@ func (e *Environment) Start(ctx context.Context) error {
 		return fmt.Errorf("environment already started")
 	}
 	e.started = true
-	for _, agent := range e.Agents() {
-		if runnableAgent, ok := agent.(dive.RunnableAgent); ok {
-			runnableAgent.Start(ctx)
-		}
-	}
 	return nil
 }
 
 func (e *Environment) Stop(ctx context.Context) error {
 	if !e.started {
 		return fmt.Errorf("environment not started")
-	}
-	for _, agent := range e.Agents() {
-		if runnableAgent, ok := agent.(dive.RunnableAgent); ok {
-			runnableAgent.Stop(ctx)
-		}
 	}
 	// TODO: stop executions?
 	e.started = false

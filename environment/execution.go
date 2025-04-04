@@ -789,21 +789,17 @@ func (e *Execution) StepOutputs() map[string]string {
 	return outputs
 }
 
-func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*dive.TaskResult, error) {
-	iterator, err := agent.Work(ctx, task)
+func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*llm.Message, error) {
+	prompt, err := task.Prompt()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task prompt: %w", err)
+	}
+	result, err := agent.CreateResponse(ctx, dive.WithInput(prompt.Text))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)
 	}
-	defer iterator.Close()
-
-	taskResults, err := dive.ReadEventPayloads[*dive.TaskResult](ctx, iterator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to wait for task result: %w", err)
-	}
-	if len(taskResults) == 0 {
-		return nil, fmt.Errorf("stream ended without a task result")
-	}
-	return taskResults[len(taskResults)-1], nil
+	fmt.Println("result:", result)
+	return result.Items[len(result.Items)-1].Message, nil
 }
 
 func evalCode(ctx context.Context, code *compiler.Code, globals map[string]any) (any, error) {

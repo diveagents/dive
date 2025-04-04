@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/diveagents/dive"
 	"github.com/diveagents/dive/llm"
@@ -71,10 +72,29 @@ func (a *MockAgent) CreateResponse(ctx context.Context, opts ...dive.ChatOption)
 }
 
 func (a *MockAgent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (dive.ResponseStream, error) {
-	stream, publisher := dive.NewEventStream()
-	publisher.Send(ctx, &dive.Event{
-		Type:    "llm.response",
-		Payload: a.response,
+	stream := newResponseEventStream()
+	publisher := stream.Publisher()
+
+	// Send a response completed event with the mock response
+	responseID := dive.NewID()
+	responseItem := &dive.ResponseItem{
+		Type:    dive.ResponseItemTypeMessage,
+		Message: a.response.Message(),
+	}
+
+	mockResponse := &dive.Response{
+		ID:         responseID,
+		Model:      "mock-model",
+		CreatedAt:  time.Now(),
+		Items:      []*dive.ResponseItem{responseItem},
+		Usage:      &a.response.Usage,
+		FinishedAt: timePtr(time.Now()),
+	}
+
+	publisher.Send(ctx, &dive.ResponseEvent{
+		Type:     dive.EventTypeResponseCompleted,
+		Response: mockResponse,
 	})
+
 	return stream, nil
 }
