@@ -72,8 +72,7 @@ func (a *MockAgent) CreateResponse(ctx context.Context, opts ...dive.ChatOption)
 }
 
 func (a *MockAgent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (dive.ResponseStream, error) {
-	stream := newResponseEventStream()
-	publisher := stream.Publisher()
+	stream, publisher := dive.NewEventStream()
 
 	// Send a response completed event with the mock response
 	responseID := dive.NewID()

@@ -235,13 +235,13 @@ func (a *Agent) SetEnvironment(env dive.Environment) error {
 	return nil
 }
 
-// processResponse handles the common logic between CreateResponse and StreamResponse
-// It takes a context, chat options, and a boolean indicating whether to stream or not.
-// For streaming mode, it returns a response stream. For non-streaming mode, it returns a Response object.
-func (a *Agent) processResponse(ctx context.Context, chatOptions dive.ChatOptions, streaming bool) (*dive.Response, dive.ResponseStream, error) {
+func (a *Agent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*dive.Response, error) {
+	var chatOptions dive.ChatOptions
+	chatOptions.Apply(opts)
+
 	messages := a.prepareMessages(chatOptions)
 	if len(messages) == 0 {
-		return nil, nil, fmt.Errorf("no messages provided")
+		return nil, fmt.Errorf("no messages provided")
 	}
 
 	logger := a.logger.With(
@@ -249,216 +249,218 @@ func (a *Agent) processResponse(ctx context.Context, chatOptions dive.ChatOption
 		"thread_id", chatOptions.ThreadID,
 		"user_id", chatOptions.UserID,
 	)
+	logger.Info("creating response")
 
-	if streaming {
-		logger.Info("streaming response")
-	} else {
-		logger.Info("creating response")
-	}
-
-	// Build the system prompt
 	systemPrompt, err := a.buildSystemPrompt("chat")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build system prompt: %w", err)
+		return nil, fmt.Errorf("failed to build system prompt: %w", err)
 	}
 
-	// Create response ID and initial timestamp
-	responseID := dive.NewID()
-	startTime := time.Now()
-
-	// Set up stream and publisher
-	var stream ResponseEventStream
 	var publisher dive.EventPublisher
-
-	if streaming {
-		// For streaming mode, create a full stream to return to the caller
-		stream = newResponseEventStream()
-		publisher = stream.Publisher()
-	} else if chatOptions.EventCallback != nil {
-		// For non-streaming mode with callbacks, create a stream for events
-		stream = newResponseEventStream()
-		publisher = stream.Publisher()
-
-		// Forward events to the callback
-		go func() {
-			for stream.Next(ctx) {
-				if err := chatOptions.EventCallback(ctx, stream.Event()); err != nil {
-					a.logger.Error("error in event callback", "error", err)
-				}
-			}
-		}()
+	if chatOptions.EventCallback != nil {
+		publisher = &callbackPublisher{callback: chatOptions.EventCallback}
 	} else {
-		// Use a null publisher that doesn't emit events
 		publisher = &nullEventPublisher{}
 	}
 
-	// Create initial response object
+	responseID := dive.NewID()
 	response := &dive.Response{
 		ID:        responseID,
 		Model:     a.model.Name(),
-		CreatedAt: startTime,
+		CreatedAt: time.Now(),
 		Usage:     &llm.Usage{},
 		Items:     []*dive.ResponseItem{},
 	}
 
-	// Send initial creation event
-	if streaming || chatOptions.EventCallback != nil {
+	if chatOptions.EventCallback != nil {
 		publisher.Send(ctx, &dive.ResponseEvent{
 			Type:     dive.EventTypeResponseCreated,
 			Response: response,
 		})
 	}
 
-	// Handle the thread history
 	var thread *dive.Thread
 	var threadMessages []*llm.Message
 	if chatOptions.ThreadID != "" {
 		if a.threadRepository == nil {
 			logger.Error("threads are not enabled")
-			err := ErrThreadsAreNotEnabled
-			if streaming {
-				publisher.Send(ctx, &dive.ResponseEvent{
-					Type:  dive.EventTypeResponseFailed,
-					Error: err,
-				})
-				return nil, stream, nil
-			}
-			return nil, nil, err
+			return nil, ErrThreadsAreNotEnabled
 		}
-
 		thread, err = a.getOrCreateThread(ctx, chatOptions.ThreadID)
 		if err != nil {
 			logger.Error("error retrieving thread", "error", err)
-			if streaming {
-				publisher.Send(ctx, &dive.ResponseEvent{
-					Type:  dive.EventTypeResponseFailed,
-					Error: err,
-				})
-				return nil, stream, nil
-			}
-			return nil, nil, err
+			return nil, err
 		}
-
 		if len(thread.Messages) > 0 {
 			threadMessages = append(threadMessages, thread.Messages...)
 		}
 	}
 	threadMessages = append(threadMessages, messages...)
 
-	// Set a timeout if specified
 	timeoutCtx := ctx
 	var cancel context.CancelFunc
 	if a.responseTimeout > 0 {
 		timeoutCtx, cancel = context.WithTimeout(ctx, a.responseTimeout)
-		if cancel != nil {
-			defer cancel()
-		}
+		defer cancel()
 	}
 
-	// Run the generation
-	lastLLMResponse, updatedMessages, err := a.generate(timeoutCtx, threadMessages, systemPrompt, publisher)
+	modelResponse, updatedMessages, err := a.generate(
+		timeoutCtx,
+		threadMessages,
+		systemPrompt,
+		publisher,
+	)
 	if err != nil {
-		if streaming {
-			publisher.Send(ctx, &dive.ResponseEvent{
-				Type:  dive.EventTypeResponseFailed,
-				Error: err,
-			})
-			return nil, stream, nil
-		}
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Save the updated thread messages
 	if thread != nil {
 		thread.Messages = updatedMessages
 		if err := a.threadRepository.PutThread(ctx, thread); err != nil {
 			logger.Error("error saving thread", "error", err)
-			if streaming {
-				publisher.Send(ctx, &dive.ResponseEvent{
-					Type:  dive.EventTypeResponseFailed,
-					Error: err,
-				})
-				return nil, stream, nil
-			}
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
-	// Create/update the final response
-	finalResponse := response
-	if streaming {
-		finalResponse = &dive.Response{
-			ID:         responseID,
-			Model:      a.model.Name(),
-			CreatedAt:  startTime,
-			Usage:      &llm.Usage{},
-			Items:      []*dive.ResponseItem{},
-			FinishedAt: timePtr(time.Now()),
-		}
-	} else {
-		endTime := time.Now()
-		finalResponse.FinishedAt = &endTime
+	response.FinishedAt = timePtr(time.Now())
+	if modelResponse != nil {
+		*response.Usage = modelResponse.Usage
 	}
-
-	// Add usage information
-	if lastLLMResponse != nil {
-		*finalResponse.Usage = lastLLMResponse.Usage
-	}
-
-	// Add all messages to the response
 	for _, msg := range updatedMessages[len(threadMessages):] {
-		finalResponse.Items = append(finalResponse.Items, &dive.ResponseItem{
+		response.Items = append(response.Items, &dive.ResponseItem{
 			Type:    dive.ResponseItemTypeMessage,
 			Message: msg,
 		})
 	}
 
-	// Send the completed event
 	publisher.Send(ctx, &dive.ResponseEvent{
 		Type:     dive.EventTypeResponseCompleted,
-		Response: finalResponse,
+		Response: response,
 	})
-
-	// For streaming mode, just return the stream
-	if streaming {
-		return nil, stream, nil
-	}
-
-	// For non-streaming mode, close the publisher if we have one and return the response
-	if stream != nil {
-		defer publisher.Close()
-	}
-
-	return finalResponse, nil, nil
-}
-
-func (a *Agent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*dive.Response, error) {
-	var chatOptions dive.ChatOptions
-	chatOptions.Apply(opts)
-
-	resp, _, err := a.processResponse(ctx, chatOptions, false)
-	return resp, err
+	return response, nil
 }
 
 func (a *Agent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (dive.ResponseStream, error) {
 	var chatOptions dive.ChatOptions
 	chatOptions.Apply(opts)
 
-	_, stream, err := a.processResponse(ctx, chatOptions, true)
-	if err != nil {
-		return nil, err
+	messages := a.prepareMessages(chatOptions)
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("no messages provided")
 	}
+
+	logger := a.logger.With(
+		"agent", a.name,
+		"thread_id", chatOptions.ThreadID,
+		"user_id", chatOptions.UserID,
+	)
+	logger.Info("streaming response")
+
+	systemPrompt, err := a.buildSystemPrompt("chat")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build system prompt: %w", err)
+	}
+
+	stream, publisher := dive.NewEventStream()
+
+	responseID := dive.NewID()
+	response := &dive.Response{
+		ID:        responseID,
+		Model:     a.model.Name(),
+		CreatedAt: time.Now(),
+		Usage:     &llm.Usage{},
+		Items:     []*dive.ResponseItem{},
+	}
+
+	publisher.Send(ctx, &dive.ResponseEvent{
+		Type:     dive.EventTypeResponseCreated,
+		Response: response,
+	})
+
+	var thread *dive.Thread
+	var threadMessages []*llm.Message
+	if chatOptions.ThreadID != "" {
+		if a.threadRepository == nil {
+			logger.Error("threads are not enabled")
+			err := ErrThreadsAreNotEnabled
+			publisher.Send(ctx, &dive.ResponseEvent{
+				Type:  dive.EventTypeResponseFailed,
+				Error: err,
+			})
+			return stream, nil
+		}
+		thread, err = a.getOrCreateThread(ctx, chatOptions.ThreadID)
+		if err != nil {
+			logger.Error("error retrieving thread", "error", err)
+			publisher.Send(ctx, &dive.ResponseEvent{
+				Type:  dive.EventTypeResponseFailed,
+				Error: err,
+			})
+			return stream, nil
+		}
+		if len(thread.Messages) > 0 {
+			threadMessages = append(threadMessages, thread.Messages...)
+		}
+	}
+	threadMessages = append(threadMessages, messages...)
+
+	timeoutCtx := ctx
+	var cancel context.CancelFunc
+	if a.responseTimeout > 0 {
+		timeoutCtx, cancel = context.WithTimeout(ctx, a.responseTimeout)
+		defer cancel()
+	}
+
+	go func() {
+		modelResponse, updatedMessages, err := a.generate(
+			timeoutCtx,
+			threadMessages,
+			systemPrompt,
+			publisher,
+		)
+		if err != nil {
+			publisher.Send(ctx, &dive.ResponseEvent{
+				Type:  dive.EventTypeResponseFailed,
+				Error: err,
+			})
+			return
+		}
+
+		if thread != nil {
+			thread.Messages = updatedMessages
+			if err := a.threadRepository.PutThread(ctx, thread); err != nil {
+				logger.Error("error saving thread", "error", err)
+				publisher.Send(ctx, &dive.ResponseEvent{
+					Type:  dive.EventTypeResponseFailed,
+					Error: err,
+				})
+				return
+			}
+		}
+
+		response := &dive.Response{
+			ID:        responseID,
+			Model:     a.model.Name(),
+			CreatedAt: time.Now(),
+			Usage:     &modelResponse.Usage,
+			Items:     []*dive.ResponseItem{},
+		}
+
+		for _, msg := range updatedMessages[len(threadMessages):] {
+			response.Items = append(response.Items, &dive.ResponseItem{
+				Type:    dive.ResponseItemTypeMessage,
+				Message: msg,
+			})
+		}
+
+		publisher.Send(ctx, &dive.ResponseEvent{
+			Type:     dive.EventTypeResponseCompleted,
+			Response: response,
+		})
+	}()
+
 	return stream, nil
 }
-
-// nullEventPublisher is an implementation of EventPublisher that does nothing
-type nullEventPublisher struct{}
-
-func (p *nullEventPublisher) Send(ctx context.Context, event *dive.ResponseEvent) error {
-	return nil
-}
-
-func (p *nullEventPublisher) Close() {}
 
 // timePtr returns a pointer to the given time
 func timePtr(t time.Time) *time.Time {
@@ -703,13 +705,6 @@ func (a *Agent) executeToolCalls(
 			"tool_name", toolCall.Name,
 			"tool_input", toolCall.Input)
 
-		now := time.Now()
-		result := &llm.ToolResult{
-			ID:        toolCall.ID,
-			Name:      toolCall.Name,
-			Input:     toolCall.Input,
-			StartedAt: &now,
-		}
 		publisher.Send(ctx, &dive.ResponseEvent{
 			Type: dive.EventTypeResponseToolCall,
 			Item: &dive.ResponseItem{
@@ -718,21 +713,21 @@ func (a *Agent) executeToolCalls(
 			},
 		})
 
+		startTime := time.Now()
 		output, err := tool.Call(ctx, toolCall.Input)
-		finishedAt := time.Now()
-		result.CompletedAt = &finishedAt
 		if err != nil {
-			result.Error = err
-			publisher.Send(ctx, &dive.ResponseEvent{
-				Type: dive.EventTypeResponseToolError,
-				Item: &dive.ResponseItem{
-					Type:       dive.ResponseItemTypeToolResult,
-					ToolResult: result,
-				},
-			})
 			return nil, false, fmt.Errorf("tool call error: %w", err)
 		}
-		result.Output = output
+		endTime := time.Now()
+
+		result := &llm.ToolResult{
+			ID:          toolCall.ID,
+			Name:        toolCall.Name,
+			Input:       toolCall.Input,
+			StartedAt:   &startTime,
+			CompletedAt: &endTime,
+			Output:      output,
+		}
 		results[i] = result
 
 		publisher.Send(ctx, &dive.ResponseEvent{
@@ -748,102 +743,6 @@ func (a *Agent) executeToolCalls(
 		}
 	}
 	return results, shouldReturnResult, nil
-}
-
-// ResponseEventStream interface for streaming response events
-type ResponseEventStream interface {
-	dive.ResponseStream
-	Publisher() dive.EventPublisher
-}
-
-// responseEventStream implementation
-type responseEventStream struct {
-	events    chan *dive.ResponseEvent
-	curr      *dive.ResponseEvent
-	err       error
-	publisher dive.EventPublisher
-	closeOnce sync.Once
-	mu        sync.Mutex
-	closed    bool
-}
-
-// newResponseEventStream creates a new response event stream
-func newResponseEventStream() ResponseEventStream {
-	s := &responseEventStream{
-		events: make(chan *dive.ResponseEvent, 16),
-	}
-	s.publisher = &responseEventPublisher{stream: s}
-	return s
-}
-
-func (s *responseEventStream) Next(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		s.mu.Lock()
-		s.err = ctx.Err()
-		s.closed = true
-		s.mu.Unlock()
-		return false
-	case event, ok := <-s.events:
-		if !ok {
-			s.mu.Lock()
-			s.closed = true
-			s.mu.Unlock()
-			return false
-		}
-		s.curr = event
-		return true
-	}
-}
-
-func (s *responseEventStream) Event() *dive.ResponseEvent {
-	return s.curr
-}
-
-func (s *responseEventStream) Err() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.err
-}
-
-func (s *responseEventStream) Close() error {
-	s.closeOnce.Do(func() {
-		s.mu.Lock()
-		s.closed = true
-		close(s.events)
-		s.mu.Unlock()
-	})
-	return nil
-}
-
-func (s *responseEventStream) Publisher() dive.EventPublisher {
-	return s.publisher
-}
-
-// responseEventPublisher implementation
-type responseEventPublisher struct {
-	stream *responseEventStream
-}
-
-func (p *responseEventPublisher) Send(ctx context.Context, event *dive.ResponseEvent) error {
-	p.stream.mu.Lock()
-	closed := p.stream.closed
-	p.stream.mu.Unlock()
-
-	if closed {
-		return dive.ErrStreamClosed
-	}
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case p.stream.events <- event:
-		return nil
-	}
-}
-
-func (p *responseEventPublisher) Close() {
-	p.stream.Close()
 }
 
 func (a *Agent) getGenerationOptions(systemPrompt string) []llm.Option {

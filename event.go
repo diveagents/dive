@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/diveagents/dive/llm"
 )
@@ -235,32 +234,32 @@ func (p *eventPublisher) Close() {
 // Generation contains information about a Dive LLM interaction. This may have
 // involved one or more underlying LLM calls, since follow up calls may be made
 // to pass tool results back to the LLM.
-type Generation struct {
-	ID              string            `json:"id,omitempty"`
-	StartedAt       time.Time         `json:"started_at,omitempty"`
-	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
-	Config          *llm.Config       `json:"config,omitempty"`
-	InputMessages   []*llm.Message    `json:"input_messages,omitempty"`
-	OutputMessages  []*llm.Message    `json:"output_messages,omitempty"`
-	ToolResults     []*llm.ToolResult `json:"tool_results,omitempty"`
-	ActiveToolCalls int               `json:"active_tool_calls,omitempty"`
-	TotalUsage      llm.Usage         `json:"total_usage,omitempty"`
-	Error           error             `json:"error,omitempty"`
-	IsDone          bool              `json:"is_done,omitempty"`
-	Model           string            `json:"model,omitempty"`
-}
+// type Generation struct {
+// 	ID              string            `json:"id,omitempty"`
+// 	StartedAt       time.Time         `json:"started_at,omitempty"`
+// 	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
+// 	Config          *llm.Config       `json:"config,omitempty"`
+// 	InputMessages   []*llm.Message    `json:"input_messages,omitempty"`
+// 	OutputMessages  []*llm.Message    `json:"output_messages,omitempty"`
+// 	ToolResults     []*llm.ToolResult `json:"tool_results,omitempty"`
+// 	ActiveToolCalls int               `json:"active_tool_calls,omitempty"`
+// 	TotalUsage      llm.Usage         `json:"total_usage,omitempty"`
+// 	Error           error             `json:"error,omitempty"`
+// 	IsDone          bool              `json:"is_done,omitempty"`
+// 	Model           string            `json:"model,omitempty"`
+// }
 
-func (g *Generation) AccumulateUsage(usage llm.Usage) {
-	g.TotalUsage.InputTokens += usage.InputTokens
-	g.TotalUsage.OutputTokens += usage.OutputTokens
-	g.TotalUsage.CacheCreationInputTokens += usage.CacheCreationInputTokens
-	g.TotalUsage.CacheReadInputTokens += usage.CacheReadInputTokens
-}
+// func (g *Generation) AccumulateUsage(usage llm.Usage) {
+// 	g.TotalUsage.InputTokens += usage.InputTokens
+// 	g.TotalUsage.OutputTokens += usage.OutputTokens
+// 	g.TotalUsage.CacheCreationInputTokens += usage.CacheCreationInputTokens
+// 	g.TotalUsage.CacheReadInputTokens += usage.CacheReadInputTokens
+// }
 
-func (g *Generation) LastMessage() (*llm.Message, bool) {
-	mLen := len(g.OutputMessages)
-	if mLen == 0 {
-		return nil, false
-	}
-	return g.OutputMessages[mLen-1], true
-}
+// func (g *Generation) LastMessage() (*llm.Message, bool) {
+// 	mLen := len(g.OutputMessages)
+// 	if mLen == 0 {
+// 		return nil, false
+// 	}
+// 	return g.OutputMessages[mLen-1], true
+// }
