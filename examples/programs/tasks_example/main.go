@@ -58,16 +58,14 @@ func main() {
 	}
 
 	a, err := agent.New(agent.Options{
-		Name:      "Research Assistant",
-		Model:     model,
-		Tools:     tools,
-		Logger:    logger,
-		AutoStart: true,
+		Name:   "Research Assistant",
+		Model:  model,
+		Tools:  tools,
+		Logger: logger,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer a.Stop(ctx)
 
 	task := agent.NewTask(agent.TaskOptions{
 		Name: "Research the history of beer",
@@ -78,17 +76,28 @@ func main() {
 		},
 	})
 
-	iterator, err := a.Work(ctx, task)
+	prompt, err := task.Prompt()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer iterator.Close()
 
-	for iterator.Next(ctx) {
-		event := iterator.Event()
-		switch p := event.Payload.(type) {
-		case *dive.TaskResult:
-			fmt.Println("result:\n", p.Content)
+	stream, err := a.StreamResponse(ctx, dive.WithInput(prompt.Text))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stream.Close()
+
+	for stream.Next(ctx) {
+		event := stream.Event()
+		if event.Type == dive.EventTypeResponseCompleted {
+			response := event.Response
+			for _, item := range response.Items {
+				if item.Type == dive.ResponseItemTypeMessage {
+					for _, block := range item.Message.Content {
+						fmt.Println(block.Text)
+					}
+				}
+			}
 		}
 	}
 }

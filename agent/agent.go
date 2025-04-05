@@ -404,14 +404,16 @@ func (a *Agent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (di
 	}
 	threadMessages = append(threadMessages, messages...)
 
-	timeoutCtx := ctx
-	var cancel context.CancelFunc
-	if a.responseTimeout > 0 {
-		timeoutCtx, cancel = context.WithTimeout(ctx, a.responseTimeout)
-		defer cancel()
-	}
-
 	go func() {
+		defer publisher.Close()
+
+		timeoutCtx := ctx
+		var cancel context.CancelFunc
+		if a.responseTimeout > 0 {
+			timeoutCtx, cancel = context.WithTimeout(ctx, a.responseTimeout)
+			defer cancel()
+		}
+
 		modelResponse, updatedMessages, err := a.generate(
 			timeoutCtx,
 			threadMessages,
@@ -473,11 +475,9 @@ func (a *Agent) prepareMessages(options dive.ChatOptions) []*llm.Message {
 	if len(options.Messages) > 0 {
 		return options.Messages
 	}
-
 	if options.Input != "" {
 		return []*llm.Message{llm.NewUserMessage(options.Input)}
 	}
-
 	return nil
 }
 
@@ -572,6 +572,13 @@ func (a *Agent) generate(
 		// Remember the assistant response message
 		assistantMsg := response.Message()
 		addMessage(assistantMsg)
+
+		// We're done if there are no tool calls
+		toolCalls := response.ToolCalls()
+		if len(toolCalls) == 0 {
+			break
+		}
+
 		publisher.Send(ctx, &dive.ResponseEvent{
 			Type: dive.EventTypeResponseInProgress,
 			Item: &dive.ResponseItem{
@@ -580,12 +587,6 @@ func (a *Agent) generate(
 				Usage:   &response.Usage,
 			},
 		})
-
-		// We're done if there are no tool calls
-		toolCalls := response.ToolCalls()
-		if len(toolCalls) == 0 {
-			break
-		}
 
 		// Execute all requested tool calls
 		toolResults, shouldReturnResult, err := a.executeToolCalls(ctx, toolCalls, publisher)
@@ -632,15 +633,12 @@ func (a *Agent) generateStreaming(
 	}
 	defer iter.Close()
 
-	var currentToolCall *llm.ToolCall
-
 	for iter.Next() {
 		event := iter.Event()
 		if err := accum.AddEvent(event); err != nil {
 			return nil, err
 		}
-
-		// Forward llm events to the publisher
+		// Forward LLM events
 		publisher.Send(ctx, &dive.ResponseEvent{
 			Type: dive.EventTypeLLMEvent,
 			Item: &dive.ResponseItem{
@@ -648,41 +646,10 @@ func (a *Agent) generateStreaming(
 				Event: event,
 			},
 		})
-
-		// Handle specific event types for more detailed event publishing
-		switch event.Type {
-		case llm.EventTypeMessageDelta:
-			if event.Delta != nil && event.Delta.Text != "" {
-				// No need to send additional events, these are detailed events
-				// that would be handled by a UI that wants to show typing effects
-			}
-		case llm.EventTypeContentBlockStart:
-			if event.ContentBlock != nil && event.ContentBlock.Type == llm.ContentTypeToolUse {
-				// Tool call started
-				currentToolCall = &llm.ToolCall{
-					ID:   event.ContentBlock.ID,
-					Name: event.ContentBlock.Name,
-				}
-				publisher.Send(ctx, &dive.ResponseEvent{
-					Type: dive.EventTypeResponseToolCall,
-					Item: &dive.ResponseItem{
-						Type:     dive.ResponseItemTypeToolCall,
-						ToolCall: currentToolCall,
-					},
-				})
-			}
-		case llm.EventTypeContentBlockStop:
-			if event.ContentBlock != nil && event.ContentBlock.Type == llm.ContentTypeToolUse {
-				// Tool call completed - accum will have parsed it already
-				currentToolCall = nil
-			}
-		}
 	}
-
 	if err := iter.Err(); err != nil {
 		return nil, err
 	}
-
 	return accum.Response(), nil
 }
 

@@ -535,7 +535,10 @@ func (e *Execution) handlePromptStep(ctx context.Context, step *workflow.Step, a
 		e.logger.Error("task execution failed", "task", task.Name(), "error", err)
 		return nil, err
 	}
-	return result, nil
+	return &dive.TaskResult{
+		Task:    task,
+		Content: result.Text(),
+	}, nil
 }
 
 // handleActionStep handles an action step by looking up and executing the action

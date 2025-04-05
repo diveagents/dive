@@ -67,5 +67,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(response.Text)
+
+	for _, item := range response.Items {
+		if item.Type == dive.ResponseItemTypeMessage {
+			for _, block := range item.Message.Content {
+				if block.Type == llm.ContentTypeText {
+					fmt.Println(block.Text)
+				}
+			}
+		}
+	}
 }

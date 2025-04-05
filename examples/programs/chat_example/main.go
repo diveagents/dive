@@ -99,17 +99,23 @@ to answer non-medical questions. Use maximum medical jargon.`,
 
 		for stream.Next(ctx) {
 			event := stream.Event()
-			switch payload := event.Payload.(type) {
-			case *llm.Event:
-				if payload.ContentBlock != nil {
-					cb := payload.ContentBlock
+			// fmt.Println(event.Type)
+			if event.Type == dive.EventTypeResponseFailed {
+				log.Fatal(event.Error)
+			}
+			if event.Type != dive.EventTypeLLMEvent {
+				continue
+			}
+			if llmEvent := event.Item.Event; llmEvent != nil {
+				if llmEvent.ContentBlock != nil {
+					cb := llmEvent.ContentBlock
 					if cb.Type == "tool_use" {
 						toolName = cb.Name
 						toolID = cb.ID
 					}
 				}
-				if payload.Delta != nil {
-					delta := payload.Delta
+				if llmEvent.Delta != nil {
+					delta := llmEvent.Delta
 					if delta.PartialJSON != "" {
 						if !inToolUse {
 							inToolUse = true

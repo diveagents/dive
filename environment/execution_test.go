@@ -2,12 +2,10 @@ package environment
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/diveagents/dive"
-	"github.com/diveagents/dive/llm"
 	"github.com/diveagents/dive/slogger"
 	"github.com/diveagents/dive/workflow"
 	"github.com/stretchr/testify/require"
@@ -15,7 +13,6 @@ import (
 
 // mockAgent implements dive.Agent for testing
 type mockAgent struct {
-	workFn func(ctx context.Context, task dive.Task) (dive.EventStream, error)
 }
 
 func (m *mockAgent) Name() string {
@@ -38,19 +35,19 @@ func (m *mockAgent) SetEnvironment(env dive.Environment) error {
 	return nil
 }
 
-func (m *mockAgent) Chat(ctx context.Context, messages []*llm.Message, opts ...dive.ChatOption) (dive.EventStream, error) {
-	return m.workFn(ctx, nil)
+func (m *mockAgent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*dive.Response, error) {
+	return nil, nil
 }
 
-func (m *mockAgent) Work(ctx context.Context, task dive.Task) (dive.EventStream, error) {
-	if m.workFn != nil {
-		return m.workFn(ctx, task)
-	}
+func (m *mockAgent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (dive.ResponseStream, error) {
 	stream, publisher := dive.NewEventStream()
-	publisher.Send(ctx, &dive.Event{
-		Type: "task.completed",
-		Payload: &dive.TaskResult{
-			Content: "test output",
+	publisher.Send(ctx, &dive.ResponseEvent{
+		Type: dive.EventTypeResponseCompleted,
+		Response: &dive.Response{
+			ID:        "test-response",
+			Model:     "mock-model",
+			CreatedAt: time.Now(),
+			Items:     []*dive.ResponseItem{},
 		},
 	})
 	publisher.Close()
@@ -200,11 +197,7 @@ func TestExecutionWithError(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	mockAgent := &mockAgent{
-		workFn: func(ctx context.Context, task dive.Task) (dive.EventStream, error) {
-			return nil, fmt.Errorf("simulated error")
-		},
-	}
+	mockAgent := &mockAgent{}
 
 	env, err := New(Options{
 		Name:      "test-env",
@@ -297,20 +290,20 @@ func TestExecutionContextCancellation(t *testing.T) {
 	require.NoError(t, err)
 
 	mockAgent := &mockAgent{
-		workFn: func(ctx context.Context, task dive.Task) (dive.EventStream, error) {
-			stream, publisher := dive.NewEventStream()
-			go func() {
-				defer publisher.Close()
-				time.Sleep(100 * time.Millisecond)
-				publisher.Send(ctx, &dive.Event{
-					Type: "task.completed",
-					Payload: &dive.TaskResult{
-						Content: "completed",
-					},
-				})
-			}()
-			return stream, nil
-		},
+		// workFn: func(ctx context.Context, task dive.Task) (dive.EventStream, error) {
+		// 	stream, publisher := dive.NewEventStream()
+		// 	go func() {
+		// 		defer publisher.Close()
+		// 		time.Sleep(100 * time.Millisecond)
+		// 		publisher.Send(ctx, &dive.Event{
+		// 			Type: "task.completed",
+		// 			Payload: &dive.TaskResult{
+		// 				Content: "completed",
+		// 			},
+		// 		})
+		// 	}()
+		// 	return stream, nil
+		// },
 	}
 
 	env, err := New(Options{
