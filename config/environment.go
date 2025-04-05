@@ -29,7 +29,6 @@ type Environment struct {
 	Workflows   []Workflow `yaml:"Workflows,omitempty" json:"Workflows,omitempty"`
 	Triggers    []Trigger  `yaml:"Triggers,omitempty" json:"Triggers,omitempty"`
 	Schedules   []Schedule `yaml:"Schedules,omitempty" json:"Schedules,omitempty"`
-	Prompts     []Prompt   `yaml:"Prompts,omitempty" json:"Prompts,omitempty"`
 }
 
 // Save writes an Environment configuration to a file. The file extension is used to
@@ -96,27 +95,17 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 	// Agents
 	agents := make([]dive.Agent, 0, len(env.Agents))
 	for _, agentDef := range env.Agents {
-		agent, err := buildAgent(agentDef, env.Config, toolsMap, logger)
+		agent, err := buildAgent(agentDef, env.Config, toolsMap)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build agent %s: %w", agentDef.Name, err)
 		}
 		agents = append(agents, agent)
 	}
 
-	// Prompts
-	var prompts []*dive.Prompt
-	for _, promptDef := range env.Prompts {
-		prompt, err := buildPrompt(promptDef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build prompt %s: %w", promptDef.Name, err)
-		}
-		prompts = append(prompts, prompt)
-	}
-
 	// Workflows
 	var workflows []*workflow.Workflow
 	for _, workflowDef := range env.Workflows {
-		workflow, err := buildWorkflow(workflowDef, agents, prompts)
+		workflow, err := buildWorkflow(workflowDef, agents)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build workflow %s: %w", workflowDef.Name, err)
 		}

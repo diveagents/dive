@@ -14,7 +14,7 @@ func TestAgent(t *testing.T) {
 	agent, err := New(Options{
 		Name:         "Testing Agent",
 		Goal:         "Test the agent",
-		Backstory:    "You are a testing agent",
+		Instructions: "You are a testing agent",
 		IsSupervisor: false,
 		Model:        anthropic.New(),
 	})
@@ -31,7 +31,10 @@ func TestAgentChat(t *testing.T) {
 				Model: "test-model",
 				Role:  llm.Assistant,
 				Content: []*llm.Content{
-					{Type: llm.ContentTypeText, Text: "Hello there! How can I help you today?"},
+					{
+						Type: llm.ContentTypeText,
+						Text: "Hello there! How can I help you today?",
+					},
 				},
 				Type:       "message",
 				StopReason: "stop",
@@ -116,14 +119,14 @@ func TestAgentChatSystemPrompt(t *testing.T) {
 	agent, err := New(Options{
 		Name:         "TestAgent",
 		Goal:         "Help research a topic.",
-		Backstory:    "You are a research assistant.",
+		Instructions: "You are a research assistant.",
 		IsSupervisor: false,
 		Model:        anthropic.New(),
 	})
 	require.NoError(t, err)
 
 	// Get the chat system prompt
-	chatSystemPrompt, err := agent.buildSystemPrompt("chat")
+	chatSystemPrompt, err := agent.buildSystemPrompt()
 	require.NoError(t, err)
 
 	// Verify that the chat system prompt doesn't contain the status section
@@ -133,18 +136,6 @@ func TestAgentChatSystemPrompt(t *testing.T) {
 	require.NotContains(t, chatSystemPrompt, "paused")
 	require.NotContains(t, chatSystemPrompt, "blocked")
 	require.NotContains(t, chatSystemPrompt, "error")
-
-	// Get the task system prompt
-	taskSystemPrompt, err := agent.buildSystemPrompt("task")
-	require.NoError(t, err)
-
-	// Verify that the task system prompt contains the status section
-	require.Contains(t, taskSystemPrompt, "<status>")
-	require.Contains(t, taskSystemPrompt, "active")
-	require.Contains(t, taskSystemPrompt, "completed")
-	require.Contains(t, taskSystemPrompt, "paused")
-	require.Contains(t, taskSystemPrompt, "blocked")
-	require.Contains(t, taskSystemPrompt, "error")
 }
 
 // TestAgentCreateResponse demonstrates using the CreateResponse API

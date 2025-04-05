@@ -47,22 +47,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	task := agent.NewTask(agent.TaskOptions{
+	task := dive.NewTask(dive.TaskOptions{
 		Timeout: 10 * time.Second,
-		Prompt: &dive.Prompt{
-			Text:         "Research the history of computing",
-			Output:       "A brief report",
-			OutputFormat: "markdown",
-		},
+		Prompt:  "Research the history of computing. Respond with a brief markdown-formatted report.",
 	})
 
-	prompt, err := task.Prompt()
+	prompt := task.Prompt()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	response, err := researcher.CreateResponse(ctx,
-		dive.WithInput(prompt.Text),
+		dive.WithInput(prompt),
 	)
 	if err != nil {
 		log.Fatal(err)

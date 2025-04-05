@@ -45,7 +45,7 @@ type ModelSettings struct {
 type Options struct {
 	Name                 string
 	Goal                 string
-	Backstory            string
+	Instructions         string
 	IsSupervisor         bool
 	Subordinates         []string
 	Model                llm.LLM
@@ -68,7 +68,7 @@ type Options struct {
 type Agent struct {
 	name                 string
 	goal                 string
-	backstory            string
+	instructions         string
 	model                llm.LLM
 	tools                []llm.Tool
 	toolsByName          map[string]llm.Tool
@@ -121,7 +121,7 @@ func New(opts Options) (*Agent, error) {
 	agent := &Agent{
 		name:                 strings.TrimSpace(opts.Name),
 		goal:                 strings.TrimSpace(opts.Goal),
-		backstory:            strings.TrimSpace(opts.Backstory),
+		instructions:         strings.TrimSpace(opts.Instructions),
 		model:                opts.Model,
 		environment:          opts.Environment,
 		isSupervisor:         opts.IsSupervisor,
@@ -172,7 +172,7 @@ func New(opts Options) (*Agent, error) {
 
 	// Register with environment if provided
 	if opts.Environment != nil {
-		if err := opts.Environment.RegisterAgent(agent); err != nil {
+		if err := opts.Environment.AddAgent(agent); err != nil {
 			return nil, fmt.Errorf("failed to register agent with environment: %w", err)
 		}
 	}
@@ -188,8 +188,8 @@ func (a *Agent) Goal() string {
 	return a.goal
 }
 
-func (a *Agent) Backstory() string {
-	return a.backstory
+func (a *Agent) Instructions() string {
+	return a.instructions
 }
 
 func (a *Agent) IsSupervisor() bool {
@@ -235,23 +235,50 @@ func (a *Agent) SetEnvironment(env dive.Environment) error {
 	return nil
 }
 
-func (a *Agent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*dive.Response, error) {
-	var chatOptions dive.ChatOptions
+func (a *Agent) prepareThreadMessages(
+	ctx context.Context,
+	threadID string,
+	messages []*llm.Message,
+) (*dive.Thread, []*llm.Message, error) {
+	if threadID == "" {
+		return nil, messages, nil
+	}
+	if a.threadRepository == nil {
+		return nil, nil, ErrThreadsAreNotEnabled
+	}
+	thread, err := a.getOrCreateThread(ctx, threadID)
+	if err != nil {
+		return nil, nil, err
+	}
+	threadMessages := append(thread.Messages, messages...)
+	return thread, threadMessages, nil
+}
+
+func (a *Agent) CreateResponse(ctx context.Context, opts ...dive.Option) (*dive.Response, error) {
+	var chatOptions dive.Options
 	chatOptions.Apply(opts)
+
+	responseID := dive.NewID()
+
+	logger := a.logger.With(
+		"agent", a.name,
+		"thread_id", chatOptions.ThreadID,
+		"user_id", chatOptions.UserID,
+		"response_id", responseID,
+	)
+	logger.Info("creating response")
 
 	messages := a.prepareMessages(chatOptions)
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no messages provided")
 	}
 
-	logger := a.logger.With(
-		"agent", a.name,
-		"thread_id", chatOptions.ThreadID,
-		"user_id", chatOptions.UserID,
-	)
-	logger.Info("creating response")
+	thread, threadMessages, err := a.prepareThreadMessages(ctx, chatOptions.ThreadID, messages)
+	if err != nil {
+		return nil, err
+	}
 
-	systemPrompt, err := a.buildSystemPrompt("chat")
+	systemPrompt, err := a.buildSystemPrompt()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build system prompt: %w", err)
 	}
@@ -262,71 +289,51 @@ func (a *Agent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*d
 	} else {
 		publisher = &nullEventPublisher{}
 	}
+	defer publisher.Close()
 
-	responseID := dive.NewID()
+	var cancel context.CancelFunc
+	if a.responseTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, a.responseTimeout)
+		defer cancel()
+	}
+
 	response := &dive.Response{
 		ID:        responseID,
 		Model:     a.model.Name(),
 		CreatedAt: time.Now(),
-		Usage:     &llm.Usage{},
-		Items:     []*dive.ResponseItem{},
 	}
 
-	if chatOptions.EventCallback != nil {
-		publisher.Send(ctx, &dive.ResponseEvent{
-			Type:     dive.EventTypeResponseCreated,
-			Response: response,
-		})
-	}
+	publisher.Send(ctx, &dive.ResponseEvent{
+		Type:     dive.EventTypeResponseCreated,
+		Response: response,
+	})
 
-	var thread *dive.Thread
-	var threadMessages []*llm.Message
-	if chatOptions.ThreadID != "" {
-		if a.threadRepository == nil {
-			logger.Error("threads are not enabled")
-			return nil, ErrThreadsAreNotEnabled
-		}
-		thread, err = a.getOrCreateThread(ctx, chatOptions.ThreadID)
-		if err != nil {
-			logger.Error("error retrieving thread", "error", err)
-			return nil, err
-		}
-		if len(thread.Messages) > 0 {
-			threadMessages = append(threadMessages, thread.Messages...)
-		}
-	}
-	threadMessages = append(threadMessages, messages...)
-
-	timeoutCtx := ctx
-	var cancel context.CancelFunc
-	if a.responseTimeout > 0 {
-		timeoutCtx, cancel = context.WithTimeout(ctx, a.responseTimeout)
-		defer cancel()
-	}
-
-	modelResponse, updatedMessages, err := a.generate(
-		timeoutCtx,
-		threadMessages,
-		systemPrompt,
-		publisher,
-	)
+	genResult, err := a.generate(ctx, threadMessages, systemPrompt, publisher)
 	if err != nil {
+		logger.Error("failed to generate response", "error", err)
+		publisher.Send(ctx, &dive.ResponseEvent{
+			Type:  dive.EventTypeResponseFailed,
+			Error: err,
+		})
 		return nil, err
 	}
 
 	if thread != nil {
-		thread.Messages = updatedMessages
+		thread.Messages = append(thread.Messages, genResult.OutputMessages...)
 		if err := a.threadRepository.PutThread(ctx, thread); err != nil {
-			logger.Error("error saving thread", "error", err)
+			logger.Error("failed to save thread", "error", err)
+			publisher.Send(ctx, &dive.ResponseEvent{
+				Type:  dive.EventTypeResponseFailed,
+				Error: err,
+			})
 			return nil, err
 		}
 	}
 
-	response.FinishedAt = timePtr(time.Now())
-	if modelResponse != nil {
-		*response.Usage = modelResponse.Usage
-	}
-	for _, msg := range updatedMessages[len(threadMessages):] {
+	response.FinishedAt = ptr(time.Now())
+	response.Usage = genResult.Usage
+
+	for _, msg := range genResult.OutputMessages {
 		response.Items = append(response.Items, &dive.ResponseItem{
 			Type:    dive.ResponseItemTypeMessage,
 			Message: msg,
@@ -340,87 +347,62 @@ func (a *Agent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*d
 	return response, nil
 }
 
-func (a *Agent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (dive.ResponseStream, error) {
-	var chatOptions dive.ChatOptions
+func (a *Agent) StreamResponse(ctx context.Context, opts ...dive.Option) (dive.ResponseStream, error) {
+	var chatOptions dive.Options
 	chatOptions.Apply(opts)
+
+	responseID := dive.NewID()
+
+	logger := a.logger.With(
+		"agent", a.name,
+		"thread_id", chatOptions.ThreadID,
+		"user_id", chatOptions.UserID,
+		"response_id", responseID,
+	)
+	logger.Info("streaming response")
 
 	messages := a.prepareMessages(chatOptions)
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no messages provided")
 	}
 
-	logger := a.logger.With(
-		"agent", a.name,
-		"thread_id", chatOptions.ThreadID,
-		"user_id", chatOptions.UserID,
-	)
-	logger.Info("streaming response")
+	thread, threadMessages, err := a.prepareThreadMessages(ctx, chatOptions.ThreadID, messages)
+	if err != nil {
+		return nil, err
+	}
 
-	systemPrompt, err := a.buildSystemPrompt("chat")
+	systemPrompt, err := a.buildSystemPrompt()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build system prompt: %w", err)
 	}
 
 	stream, publisher := dive.NewEventStream()
 
-	responseID := dive.NewID()
-	response := &dive.Response{
-		ID:        responseID,
-		Model:     a.model.Name(),
-		CreatedAt: time.Now(),
-		Usage:     &llm.Usage{},
-		Items:     []*dive.ResponseItem{},
-	}
-
-	publisher.Send(ctx, &dive.ResponseEvent{
-		Type:     dive.EventTypeResponseCreated,
-		Response: response,
-	})
-
-	var thread *dive.Thread
-	var threadMessages []*llm.Message
-	if chatOptions.ThreadID != "" {
-		if a.threadRepository == nil {
-			logger.Error("threads are not enabled")
-			err := ErrThreadsAreNotEnabled
-			publisher.Send(ctx, &dive.ResponseEvent{
-				Type:  dive.EventTypeResponseFailed,
-				Error: err,
-			})
-			return stream, nil
-		}
-		thread, err = a.getOrCreateThread(ctx, chatOptions.ThreadID)
-		if err != nil {
-			logger.Error("error retrieving thread", "error", err)
-			publisher.Send(ctx, &dive.ResponseEvent{
-				Type:  dive.EventTypeResponseFailed,
-				Error: err,
-			})
-			return stream, nil
-		}
-		if len(thread.Messages) > 0 {
-			threadMessages = append(threadMessages, thread.Messages...)
-		}
-	}
-	threadMessages = append(threadMessages, messages...)
-
 	go func() {
 		defer publisher.Close()
 
-		timeoutCtx := ctx
 		var cancel context.CancelFunc
 		if a.responseTimeout > 0 {
-			timeoutCtx, cancel = context.WithTimeout(ctx, a.responseTimeout)
+			ctx, cancel = context.WithTimeout(ctx, a.responseTimeout)
 			defer cancel()
 		}
 
-		modelResponse, updatedMessages, err := a.generate(
-			timeoutCtx,
-			threadMessages,
-			systemPrompt,
-			publisher,
-		)
+		response := &dive.Response{
+			ID:        responseID,
+			Model:     a.model.Name(),
+			CreatedAt: time.Now(),
+			Usage:     &llm.Usage{},
+			Items:     []*dive.ResponseItem{},
+		}
+
+		publisher.Send(ctx, &dive.ResponseEvent{
+			Type:     dive.EventTypeResponseCreated,
+			Response: response,
+		})
+
+		genResult, err := a.generate(ctx, threadMessages, systemPrompt, publisher)
 		if err != nil {
+			logger.Error("failed to generate response", "error", err)
 			publisher.Send(ctx, &dive.ResponseEvent{
 				Type:  dive.EventTypeResponseFailed,
 				Error: err,
@@ -429,9 +411,9 @@ func (a *Agent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (di
 		}
 
 		if thread != nil {
-			thread.Messages = updatedMessages
+			thread.Messages = append(thread.Messages, genResult.OutputMessages...)
 			if err := a.threadRepository.PutThread(ctx, thread); err != nil {
-				logger.Error("error saving thread", "error", err)
+				logger.Error("failed to save thread", "error", err)
 				publisher.Send(ctx, &dive.ResponseEvent{
 					Type:  dive.EventTypeResponseFailed,
 					Error: err,
@@ -440,15 +422,10 @@ func (a *Agent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (di
 			}
 		}
 
-		response := &dive.Response{
-			ID:        responseID,
-			Model:     a.model.Name(),
-			CreatedAt: time.Now(),
-			Usage:     &modelResponse.Usage,
-			Items:     []*dive.ResponseItem{},
-		}
+		response.FinishedAt = ptr(time.Now())
+		response.Usage = genResult.Usage
 
-		for _, msg := range updatedMessages[len(threadMessages):] {
+		for _, msg := range genResult.OutputMessages {
 			response.Items = append(response.Items, &dive.ResponseItem{
 				Type:    dive.ResponseItemTypeMessage,
 				Message: msg,
@@ -464,21 +441,22 @@ func (a *Agent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (di
 	return stream, nil
 }
 
-// timePtr returns a pointer to the given time
-func timePtr(t time.Time) *time.Time {
+func ptr[T any](t T) *T {
 	return &t
 }
 
 // prepareMessages processes the ChatOptions to create messages for the LLM.
 // It handles both WithMessages and WithInput options.
-func (a *Agent) prepareMessages(options dive.ChatOptions) []*llm.Message {
+func (a *Agent) prepareMessages(options dive.Options) []*llm.Message {
+	var messages []*llm.Message
 	if len(options.Messages) > 0 {
-		return options.Messages
+		messages = make([]*llm.Message, len(options.Messages))
+		copy(messages, options.Messages)
 	}
 	if options.Input != "" {
-		return []*llm.Message{llm.NewUserMessage(options.Input)}
+		messages = append(messages, llm.NewUserMessage(options.Input))
 	}
-	return nil
+	return messages
 }
 
 func (a *Agent) getOrCreateThread(ctx context.Context, threadID string) (*dive.Thread, error) {
@@ -498,11 +476,8 @@ func (a *Agent) getOrCreateThread(ctx context.Context, threadID string) (*dive.T
 	}, nil
 }
 
-func (a *Agent) buildSystemPrompt(mode string) (string, error) {
+func (a *Agent) buildSystemPrompt() (string, error) {
 	var responseGuidelines string
-	if mode == "task" {
-		responseGuidelines = PromptForTaskResponses
-	}
 	data := newAgentTemplateData(a, responseGuidelines)
 	prompt, err := executeTemplate(a.systemPromptTemplate, data)
 	if err != nil {
@@ -522,21 +497,25 @@ func (a *Agent) generate(
 	messages []*llm.Message,
 	systemPrompt string,
 	publisher dive.EventPublisher,
-) (*llm.Response, []*llm.Message, error) {
-	// Holds the most recent response from the LLM
-	var response *llm.Response
+) (*generateResult, error) {
 
-	// Contains the message history. We'll append to this and return it when done.
+	// Contains the message history we pass to the LLM
 	updatedMessages := make([]*llm.Message, len(messages))
 	copy(updatedMessages, messages)
 
+	// New messages that are the output
+	var outputMessages []*llm.Message
+
+	// Accumulates usage across multiple LLM calls
+	totalUsage := &llm.Usage{}
+
+	newMessage := func(msg *llm.Message) {
+		updatedMessages = append(updatedMessages, msg)
+		outputMessages = append(outputMessages, msg)
+	}
+
 	// Options passed to the LLM
 	generateOpts := a.getGenerationOptions(systemPrompt)
-
-	// Helper to keep track of new messages
-	addMessage := func(msg *llm.Message) {
-		updatedMessages = append(updatedMessages, msg)
-	}
 
 	// The loop is used to run and respond to the primary generation request
 	// and then automatically run any tool-use invocations. The first time
@@ -546,6 +525,7 @@ func (a *Agent) generate(
 	for i := range generationLimit {
 		// Generate a response in either streaming or non-streaming mode
 		var err error
+		var response *llm.Response
 		if streamingLLM, ok := a.model.(llm.StreamingLLM); ok {
 			response, err = a.generateStreaming(ctx, streamingLLM, updatedMessages, generateOpts, publisher)
 		} else {
@@ -556,7 +536,7 @@ func (a *Agent) generate(
 			err = ErrLLMNoResponse
 		}
 		if err != nil {
-			return nil, updatedMessages, err
+			return nil, err
 		}
 
 		a.logger.Debug("llm response",
@@ -571,7 +551,10 @@ func (a *Agent) generate(
 
 		// Remember the assistant response message
 		assistantMsg := response.Message()
-		addMessage(assistantMsg)
+		newMessage(assistantMsg)
+
+		// Track total token usage
+		totalUsage.Add(&response.Usage)
 
 		// We're done if there are no tool calls
 		toolCalls := response.ToolCalls()
@@ -584,14 +567,14 @@ func (a *Agent) generate(
 			Item: &dive.ResponseItem{
 				Type:    dive.ResponseItemTypeMessage,
 				Message: assistantMsg,
-				Usage:   &response.Usage,
+				Usage:   response.Usage.Copy(),
 			},
 		})
 
 		// Execute all requested tool calls
 		toolResults, shouldReturnResult, err := a.executeToolCalls(ctx, toolCalls, publisher)
 		if err != nil {
-			return nil, updatedMessages, err
+			return nil, err
 		}
 
 		// We're done if the results don't need to be provided to the LLM
@@ -601,6 +584,7 @@ func (a *Agent) generate(
 
 		// Capture results in a new message to send to LLM on the next iteration
 		toolResultMessage := llm.NewToolOutputMessage(toolResults)
+		newMessage(toolResultMessage)
 
 		// Add instructions to the message to not use any more tools if we have
 		// only one generation left
@@ -611,10 +595,12 @@ func (a *Agent) generate(
 				"generation_number", i+1,
 			)
 		}
-		addMessage(toolResultMessage)
 	}
 
-	return response, updatedMessages, nil
+	return &generateResult{
+		OutputMessages: outputMessages,
+		Usage:          totalUsage,
+	}, nil
 }
 
 // generateStreaming handles streaming generation with an LLM, including
@@ -781,9 +767,6 @@ func (a *Agent) TeamOverview() string {
 	}
 	for _, agent := range agents {
 		description := fmt.Sprintf("- Name: %s", agent.Name())
-		if goal := agent.Goal(); goal != "" {
-			description += fmt.Sprintf(" Goal: %s", goal)
-		}
 		if agent.Name() == a.name {
 			description += " (You)"
 		}
@@ -792,74 +775,54 @@ func (a *Agent) TeamOverview() string {
 	return strings.Join(lines, "\n")
 }
 
-func (a *Agent) environmentName() string {
-	if a.environment == nil {
-		return ""
-	}
-	return a.environment.Name()
-}
+// func taskPromptMessages(prompt *dive.Prompt) ([]*llm.Message, error) {
+// 	messages := []*llm.Message{}
 
-func (a *Agent) eventOrigin() dive.EventOrigin {
-	var environmentName string
-	if a.environment != nil {
-		environmentName = a.environment.Name()
-	}
-	return dive.EventOrigin{
-		AgentName:       a.name,
-		EnvironmentName: environmentName,
-	}
-}
+// 	if prompt.Text == "" {
+// 		return nil, ErrNoInstructions
+// 	}
 
-func (a *Agent) errorEvent(err error) *dive.ResponseEvent {
-	return &dive.ResponseEvent{
-		Type:  dive.EventTypeError,
-		Error: err,
-	}
-}
+// 	// Add context information if available
+// 	if len(prompt.Context) > 0 {
+// 		contextLines := []string{
+// 			"Important: The following context may contain relevant information to help you complete the task.",
+// 		}
+// 		for _, context := range prompt.Context {
+// 			var contextBlock string
+// 			if context.Name != "" {
+// 				contextBlock = fmt.Sprintf("<context name=%q>\n%s\n</context>", context.Name, context.Text)
+// 			} else {
+// 				contextBlock = fmt.Sprintf("<context>\n%s\n</context>", context.Text)
+// 			}
+// 			contextLines = append(contextLines, contextBlock)
+// 		}
+// 		messages = append(messages, llm.NewUserMessage(strings.Join(contextLines, "\n\n")))
+// 	}
 
-func taskPromptMessages(prompt *dive.Prompt) ([]*llm.Message, error) {
-	messages := []*llm.Message{}
+// 	var lines []string
 
-	if prompt.Text == "" {
-		return nil, ErrNoInstructions
-	}
+// 	// Add task instructions
+// 	lines = append(lines, "You must complete the following task:")
+// 	if prompt.Name != "" {
+// 		lines = append(lines, fmt.Sprintf("<task name=%q>\n%s\n</task>", prompt.Name, prompt.Text))
+// 	} else {
+// 		lines = append(lines, fmt.Sprintf("<task>\n%s\n</task>", prompt.Text))
+// 	}
 
-	// Add context information if available
-	if len(prompt.Context) > 0 {
-		contextLines := []string{
-			"Important: The following context may contain relevant information to help you complete the task.",
-		}
-		for _, context := range prompt.Context {
-			var contextBlock string
-			if context.Name != "" {
-				contextBlock = fmt.Sprintf("<context name=%q>\n%s\n</context>", context.Name, context.Text)
-			} else {
-				contextBlock = fmt.Sprintf("<context>\n%s\n</context>", context.Text)
-			}
-			contextLines = append(contextLines, contextBlock)
-		}
-		messages = append(messages, llm.NewUserMessage(strings.Join(contextLines, "\n\n")))
-	}
+// 	// Add output expectations if specified
+// 	if prompt.Output != "" {
+// 		output := "Response requirements: " + prompt.Output
+// 		if prompt.OutputFormat != "" {
+// 			output += fmt.Sprintf("\n\nFormat your response in %s format.", prompt.OutputFormat)
+// 		}
+// 		lines = append(lines, output)
+// 	}
 
-	var lines []string
+// 	messages = append(messages, llm.NewUserMessage(strings.Join(lines, "\n\n")))
+// 	return messages, nil
+// }
 
-	// Add task instructions
-	lines = append(lines, "You must complete the following task:")
-	if prompt.Name != "" {
-		lines = append(lines, fmt.Sprintf("<task name=%q>\n%s\n</task>", prompt.Name, prompt.Text))
-	} else {
-		lines = append(lines, fmt.Sprintf("<task>\n%s\n</task>", prompt.Text))
-	}
-
-	// Add output expectations if specified
-	if prompt.Output != "" {
-		output := "Response requirements: " + prompt.Output
-		if prompt.OutputFormat != "" {
-			output += fmt.Sprintf("\n\nFormat your response in %s format.", prompt.OutputFormat)
-		}
-		lines = append(lines, output)
-	}
-
-	messages = append(messages, llm.NewUserMessage(strings.Join(lines, "\n\n")))
-	return messages, nil
+type generateResult struct {
+	OutputMessages []*llm.Message
+	Usage          *llm.Usage
 }

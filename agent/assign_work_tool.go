@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/diveagents/dive"
@@ -128,54 +129,47 @@ func (t *AssignWorkTool) Call(ctx context.Context, input string) (string, error)
 		outputFormat = dive.OutputFormatMarkdown
 	}
 
-	var context []*dive.PromptContext
+	var promptLines []string
 	if params.Context != "" {
-		context = append(context, &dive.PromptContext{Text: params.Context})
+		promptLines = append(promptLines, "Context:")
+		promptLines = append(promptLines, fmt.Sprintf("<context>\n%s\n</context>", params.Context))
 	}
+	if params.Description != "" {
+		promptLines = append(promptLines, "Please complete the following task:")
+		promptLines = append(promptLines, fmt.Sprintf("<task>\n%s\n</task>", params.Description))
+	}
+	if params.ExpectedOutput != "" {
+		promptLines = append(promptLines, "Expected output: "+params.ExpectedOutput)
+	}
+	if params.OutputFormat != "" {
+		promptLines = append(promptLines, "Desired output format: "+params.OutputFormat)
+	}
+	promptLines = append(promptLines, "Please work on the task now and respond with the requested output only.")
 
-	// Capture this request as a new task
-	task := NewTask(TaskOptions{
-		Name:    params.Name,
-		Timeout: t.defaultTaskTimeout,
-		Prompt: &dive.Prompt{
-			Text:         params.Description,
-			Output:       params.ExpectedOutput,
-			OutputFormat: outputFormat,
-			Context:      context,
-		},
-	})
+	prompt := strings.Join(promptLines, "\n\n")
 
-	prompt, err := task.Prompt()
+	stream, err := agent.StreamResponse(ctx, dive.WithInput(prompt))
 	if err != nil {
-		return fmt.Sprintf("This assignment could not be started: %s", err.Error()), nil
+		return "", err
 	}
+	defer stream.Close()
 
-	// Tell the agent to work on the task
-	iterator, err := agent.StreamResponse(ctx, dive.WithInput(prompt.Text))
-	if err != nil {
-		return fmt.Sprintf("This assignment could not be started: %s", err.Error()), nil
-	}
-	defer iterator.Close()
-
-	for iterator.Next(ctx) {
-		event := iterator.Event()
+	for stream.Next(ctx) {
+		event := stream.Event()
 		if event.Error != nil {
 			return "", event.Error
 		}
-
-		// Check for Item which contains the message or result
-		if event.Type == dive.EventTypeResponseCompleted && event.Response != nil {
-			// Process completed response
+		if event.Type == dive.EventTypeResponseCompleted {
 			for _, item := range event.Response.Items {
-				if item.Type == dive.ResponseItemTypeMessage && item.Message != nil {
+				if item.Type == dive.ResponseItemTypeMessage {
 					return item.Message.Text(), nil
 				}
 			}
 		}
 	}
 
-	if err := iterator.Err(); err != nil {
-		return fmt.Sprintf("I encountered an error: %s", err), nil
+	if err := stream.Err(); err != nil {
+		return "", err
 	}
 
 	// We shouldn't reach this point. The agent should have returned the result

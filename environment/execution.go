@@ -509,35 +509,25 @@ func (e *Execution) executeStepEach(ctx context.Context, step *workflow.Step, ag
 func (e *Execution) handlePromptStep(ctx context.Context, step *workflow.Step, agent dive.Agent) (*dive.TaskResult, error) {
 	// Create a task from the prompt
 	prompt := step.Prompt()
-	if prompt == nil {
+	if prompt == "" {
 		return nil, fmt.Errorf("prompt step %q has no prompt", step.Name())
 	}
 
 	// Evaluate the prompt text as a template
-	promptText, err := eval.Eval(ctx, prompt.Text, e.scriptGlobals)
+	promptText, err := eval.Eval(ctx, prompt, e.scriptGlobals)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create prompt template: %w", err)
 	}
-	task := &Task{
-		name: step.Name(),
-		prompt: &dive.Prompt{
-			Name:         prompt.Name,
-			Text:         promptText,
-			Context:      prompt.Context,
-			Output:       prompt.Output,
-			OutputFormat: prompt.OutputFormat,
-		},
-	}
 
 	// Execute the task
-	result, err := executeTask(ctx, agent, task)
+	result, err := agent.CreateResponse(ctx, dive.WithInput(promptText))
 	if err != nil {
-		e.logger.Error("task execution failed", "task", task.Name(), "error", err)
+		e.logger.Error("task execution failed", "step", step.Name(), "error", err)
 		return nil, err
 	}
+
 	return &dive.TaskResult{
-		Task:    task,
-		Content: result.Text(),
+		Content: result.OutputText(),
 	}, nil
 }
 
@@ -790,19 +780,6 @@ func (e *Execution) StepOutputs() map[string]string {
 		}
 	}
 	return outputs
-}
-
-func executeTask(ctx context.Context, agent dive.Agent, task dive.Task) (*llm.Message, error) {
-	prompt, err := task.Prompt()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task prompt: %w", err)
-	}
-	result, err := agent.CreateResponse(ctx, dive.WithInput(prompt.Text))
-	if err != nil {
-		return nil, fmt.Errorf("failed to start task %q: %w", task.Name(), err)
-	}
-	fmt.Println("result:", result)
-	return result.Items[len(result.Items)-1].Message, nil
 }
 
 func evalCode(ctx context.Context, code *compiler.Code, globals map[string]any) (any, error) {

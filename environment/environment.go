@@ -185,7 +185,7 @@ func (e *Environment) GetAgent(name string) (dive.Agent, error) {
 	return nil, fmt.Errorf("agent not found: %s", name)
 }
 
-func (e *Environment) RegisterAgent(agent dive.Agent) error {
+func (e *Environment) AddAgent(agent dive.Agent) error {
 	if _, exists := e.agents[agent.Name()]; exists {
 		return fmt.Errorf("agent already present: %s", agent.Name())
 	}

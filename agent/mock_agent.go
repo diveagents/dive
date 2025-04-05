@@ -2,36 +2,32 @@ package agent
 
 import (
 	"context"
-	"time"
 
 	"github.com/diveagents/dive"
-	"github.com/diveagents/dive/llm"
 )
 
 // WorkFunc is a function that returns a dive.EventStream.
 // type WorkFunc func(ctx context.Context, task dive.Task) (dive.EventStream, error)
 
 type MockAgentOptions struct {
-	Name         string
-	Goal         string
-	Backstory    string
-	IsSupervisor bool
-	Subordinates []string
-	// Work           WorkFunc
+	Name           string
+	Goal           string
+	Backstory      string
+	IsSupervisor   bool
+	Subordinates   []string
 	AcceptedEvents []string
-	Response       *llm.Response
+	Response       *dive.Response
 }
 
 type MockAgent struct {
-	name         string
-	goal         string
-	backstory    string
-	isSupervisor bool
-	subordinates []string
-	environment  dive.Environment
-	// work           WorkFunc
+	name           string
+	goal           string
+	backstory      string
+	isSupervisor   bool
+	subordinates   []string
+	environment    dive.Environment
 	acceptedEvents []string
-	response       *llm.Response
+	response       *dive.Response
 }
 
 func NewMockAgent(opts MockAgentOptions) *MockAgent {
@@ -67,32 +63,32 @@ func (a *MockAgent) SetEnvironment(env dive.Environment) error {
 	return nil
 }
 
-func (a *MockAgent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*dive.Response, error) {
-	return nil, nil
+func (a *MockAgent) CreateResponse(ctx context.Context, opts ...dive.Option) (*dive.Response, error) {
+	return a.response, nil
 }
 
-func (a *MockAgent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (dive.ResponseStream, error) {
+func (a *MockAgent) StreamResponse(ctx context.Context, opts ...dive.Option) (dive.ResponseStream, error) {
 	stream, publisher := dive.NewEventStream()
+	defer publisher.Close()
 
-	// Send a response completed event with the mock response
-	responseID := dive.NewID()
-	responseItem := &dive.ResponseItem{
-		Type:    dive.ResponseItemTypeMessage,
-		Message: a.response.Message(),
-	}
+	// responseID := dive.NewID()
+	// responseItem := &dive.ResponseItem{
+	// 	Type:    dive.ResponseItemTypeMessage,
+	// 	Message: a.response.Items[0].Message,
+	// }
 
-	mockResponse := &dive.Response{
-		ID:         responseID,
-		Model:      "mock-model",
-		CreatedAt:  time.Now(),
-		Items:      []*dive.ResponseItem{responseItem},
-		Usage:      &a.response.Usage,
-		FinishedAt: timePtr(time.Now()),
-	}
+	// mockResponse := &dive.Response{
+	// 	ID:         responseID,
+	// 	Model:      "mock-model",
+	// 	CreatedAt:  time.Now(),
+	// 	Items:      []*dive.ResponseItem{responseItem},
+	// 	Usage:      a.response.Usage,
+	// 	FinishedAt: timePtr(time.Now()),
+	// }
 
 	publisher.Send(ctx, &dive.ResponseEvent{
 		Type:     dive.EventTypeResponseCompleted,
-		Response: mockResponse,
+		Response: a.response,
 	})
 
 	return stream, nil

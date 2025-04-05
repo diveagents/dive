@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/diveagents/dive"
 	"github.com/diveagents/dive/agent"
@@ -67,21 +68,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	task := agent.NewTask(agent.TaskOptions{
-		Name: "Research the history of beer",
-		Prompt: &dive.Prompt{
-			Text:         "Briefly research the history of beer",
-			Output:       "The history of beer",
-			OutputFormat: dive.OutputFormatMarkdown,
-		},
+	task := dive.NewTask(dive.TaskOptions{
+		Name:    "Research the history of beer",
+		Prompt:  "Briefly research the history of beer. Respond with a brief markdown-formatted report.",
+		Timeout: 10 * time.Second,
 	})
 
-	prompt, err := task.Prompt()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	stream, err := a.StreamResponse(ctx, dive.WithInput(prompt.Text))
+	stream, err := a.StreamResponse(ctx, dive.WithInput(task.Prompt()))
 	if err != nil {
 		log.Fatal(err)
 	}

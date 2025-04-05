@@ -11,33 +11,10 @@ import (
 
 var ErrStreamClosed = errors.New("stream is closed")
 
-// EventOrigin carries information about what produced the event.
-type EventOrigin struct {
-	AgentName       string `json:"agent_name,omitempty"`
-	TaskName        string `json:"task_name,omitempty"`
-	WorkflowName    string `json:"workflow_name,omitempty"`
-	EnvironmentName string `json:"environment_name,omitempty"`
-}
-
 // EventType is the type of event emitted by an Agent or Workflow.
 type EventType string
 
 const (
-	// EventTypeGenerationStarted   EventType = "generation.started"
-	// EventTypeGenerationProgress  EventType = "generation.progress"
-	// EventTypeGenerationCompleted EventType = "generation.completed"
-	// EventTypeGenerationError     EventType = "generation.error"
-	// EventTypeLLMEvent            EventType = "llm.event"
-	// EventTypeToolCalled          EventType = "tool.called"
-	// EventTypeToolOutput          EventType = "tool.output"
-	// EventTypeToolError           EventType = "tool.error"
-	// EventTypeTaskActivated       EventType = "task.activated"
-	// EventTypeTaskProgress        EventType = "task.progress"
-	// EventTypeTaskPaused          EventType = "task.paused"
-	// EventTypeTaskCompleted       EventType = "task.completed"
-	// EventTypeTaskError           EventType = "task.error"
-	// EventTypeError               EventType = "error"
-
 	EventTypeResponseCreated    EventType = "response.created"
 	EventTypeResponseInProgress EventType = "response.in_progress"
 	EventTypeResponseCompleted  EventType = "response.completed"
@@ -53,7 +30,8 @@ func (t EventType) String() string {
 	return string(t)
 }
 
-// ResponseEvent carries
+// ResponseEvent carries information about an event that occurred during a Dive
+// LLM interaction.
 type ResponseEvent struct {
 	// Type of the event
 	Type EventType `json:"type"`
@@ -67,27 +45,6 @@ type ResponseEvent struct {
 	// Response contains the complete response for response completed events
 	Response *Response `json:"response,omitempty"`
 }
-
-// // ResponseStream is an interface used to consume events from Agents and Workflows.
-// // An ResponseStream should be consumed by a single goroutine. These functions are
-// // not thread safe.
-// type ResponseStream interface {
-// 	// Next advances the stream to the next event. It returns false when the stream
-// 	// is complete or if an error occurs. The caller should check Err() after Next
-// 	// returns false to distinguish between normal completion and errors.
-// 	Next(ctx context.Context) bool
-
-// 	// Event returns the current event in the stream. It should only be called
-// 	// after a successful call to Next.
-// 	Event() *Event
-
-// 	// Err returns any error that occurred while reading from the stream.
-// 	// It should be checked after Next returns false.
-// 	Err() error
-
-// 	// Close the stream and release any associated resources.
-// 	Close() error
-// }
 
 // EventPublisher is an interface used to send events to an EventStream.
 // These functions are safe to call concurrently.
@@ -121,8 +78,8 @@ func ReadEventPayloads[T any](ctx context.Context, stream ResponseStream) ([]T, 
 	return results, nil
 }
 
-// ReadMessages returns all messages generated in an interaction. This will include
-// both assistant messages and tool result messages.
+// ReadMessages returns all messages generated in an interaction. This may
+// include both assistant messages and tool result messages.
 func ReadMessages(ctx context.Context, stream ResponseStream) ([]*llm.Message, error) {
 	var messages []*llm.Message
 	for stream.Next(ctx) {
@@ -133,9 +90,9 @@ func ReadMessages(ctx context.Context, stream ResponseStream) ([]*llm.Message, e
 		if event.Error != nil {
 			return nil, fmt.Errorf("received error event from stream: %w", event.Error)
 		}
-		if event.Type == EventTypeResponseCompleted && event.Response != nil {
+		if event.Type == EventTypeResponseCompleted {
 			for _, item := range event.Response.Items {
-				if item.Type == ResponseItemTypeMessage && item.Message != nil {
+				if item.Type == ResponseItemTypeMessage {
 					messages = append(messages, item.Message)
 				}
 			}
@@ -230,36 +187,3 @@ func (p *eventPublisher) Close() {
 		close(p.stream.ch)
 	}
 }
-
-// Generation contains information about a Dive LLM interaction. This may have
-// involved one or more underlying LLM calls, since follow up calls may be made
-// to pass tool results back to the LLM.
-// type Generation struct {
-// 	ID              string            `json:"id,omitempty"`
-// 	StartedAt       time.Time         `json:"started_at,omitempty"`
-// 	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
-// 	Config          *llm.Config       `json:"config,omitempty"`
-// 	InputMessages   []*llm.Message    `json:"input_messages,omitempty"`
-// 	OutputMessages  []*llm.Message    `json:"output_messages,omitempty"`
-// 	ToolResults     []*llm.ToolResult `json:"tool_results,omitempty"`
-// 	ActiveToolCalls int               `json:"active_tool_calls,omitempty"`
-// 	TotalUsage      llm.Usage         `json:"total_usage,omitempty"`
-// 	Error           error             `json:"error,omitempty"`
-// 	IsDone          bool              `json:"is_done,omitempty"`
-// 	Model           string            `json:"model,omitempty"`
-// }
-
-// func (g *Generation) AccumulateUsage(usage llm.Usage) {
-// 	g.TotalUsage.InputTokens += usage.InputTokens
-// 	g.TotalUsage.OutputTokens += usage.OutputTokens
-// 	g.TotalUsage.CacheCreationInputTokens += usage.CacheCreationInputTokens
-// 	g.TotalUsage.CacheReadInputTokens += usage.CacheReadInputTokens
-// }
-
-// func (g *Generation) LastMessage() (*llm.Message, bool) {
-// 	mLen := len(g.OutputMessages)
-// 	if mLen == 0 {
-// 		return nil, false
-// 	}
-// 	return g.OutputMessages[mLen-1], true
-// }

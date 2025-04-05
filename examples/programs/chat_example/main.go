@@ -51,7 +51,7 @@ func main() {
 
 	a, err := agent.New(agent.Options{
 		Name: "Dr. Smith",
-		Backstory: `
+		Instructions: `
 You are a virtual doctor for role-playing purposes only. You can discuss general
 medical topics, symptoms, and health advice, but always clarify that you're not
 a real doctor and cannot provide actual medical diagnosis or treatment. Refuse

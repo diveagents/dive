@@ -11,7 +11,8 @@ Config:
 
 Agents:
   - Name: Assistant
-    Description: A helpful assistant that can respond to questions and provide information
+    Instructions: |
+      Act as a helpful assistant
 
 Workflows:
   - Name: Show Current Time
@@ -21,7 +22,6 @@ Workflows:
         Store: current_time
 
       - Name: Print Current Time
-        Prompt:
-          Text: |
-            The current time is: ${current_time}
-            Respond with the current wall clock time.
+        Prompt: |
+          The current time is: ${current_time}
+          Respond with the current wall clock time.

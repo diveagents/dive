@@ -7,15 +7,9 @@ import (
 	"github.com/diveagents/dive"
 	"github.com/diveagents/dive/agent"
 	"github.com/diveagents/dive/llm"
-	"github.com/diveagents/dive/slogger"
 )
 
-func buildAgent(
-	agentDef Agent,
-	config Config,
-	tools map[string]llm.Tool,
-	logger slogger.Logger,
-) (dive.Agent, error) {
+func buildAgent(agentDef Agent, config Config, tools map[string]llm.Tool) (dive.Agent, error) {
 	providerName := agentDef.Provider
 	if providerName == "" {
 		providerName = config.LLM.DefaultProvider
@@ -60,7 +54,7 @@ func buildAgent(
 	return agent.New(agent.Options{
 		Name:               agentDef.Name,
 		Goal:               agentDef.Goal,
-		Backstory:          agentDef.Backstory,
+		Instructions:       agentDef.Instructions,
 		IsSupervisor:       agentDef.IsSupervisor,
 		Subordinates:       agentDef.Subordinates,
 		Model:              model,

@@ -35,11 +35,11 @@ func (m *mockAgent) SetEnvironment(env dive.Environment) error {
 	return nil
 }
 
-func (m *mockAgent) CreateResponse(ctx context.Context, opts ...dive.ChatOption) (*dive.Response, error) {
+func (m *mockAgent) CreateResponse(ctx context.Context, opts ...dive.Option) (*dive.Response, error) {
 	return nil, nil
 }
 
-func (m *mockAgent) StreamResponse(ctx context.Context, opts ...dive.ChatOption) (dive.ResponseStream, error) {
+func (m *mockAgent) StreamResponse(ctx context.Context, opts ...dive.Option) (dive.ResponseStream, error) {
 	stream, publisher := dive.NewEventStream()
 	publisher.Send(ctx, &dive.ResponseEvent{
 		Type: dive.EventTypeResponseCompleted,
@@ -59,12 +59,9 @@ func TestNewExecution(t *testing.T) {
 		Name: "test-workflow",
 		Steps: []*workflow.Step{
 			workflow.NewStep(workflow.StepOptions{
-				Name:  "test-step",
-				Agent: &mockAgent{},
-				Prompt: &dive.Prompt{
-					Name: "test-task",
-					Text: "test description",
-				},
+				Name:   "test-step",
+				Agent:  &mockAgent{},
+				Prompt: "test description",
 			}),
 		},
 	})
@@ -89,12 +86,9 @@ func TestExecutionBasicFlow(t *testing.T) {
 		Name: "test-workflow",
 		Steps: []*workflow.Step{
 			workflow.NewStep(workflow.StepOptions{
-				Name:  "test-step",
-				Agent: &mockAgent{},
-				Prompt: &dive.Prompt{
-					Name: "test-task",
-					Text: "test description",
-				},
+				Name:   "test-step",
+				Agent:  &mockAgent{},
+				Prompt: "test description",
 			}),
 		},
 	})
@@ -125,32 +119,23 @@ func TestExecutionWithBranching(t *testing.T) {
 		Name: "branching-workflow",
 		Steps: []*workflow.Step{
 			workflow.NewStep(workflow.StepOptions{
-				Name:  "start",
-				Agent: &mockAgent{},
-				Prompt: &dive.Prompt{
-					Name: "start-task",
-					Text: "Start Task",
-				},
+				Name:   "start",
+				Agent:  &mockAgent{},
+				Prompt: "Start Task",
 				Next: []*workflow.Edge{
 					{Step: "branch1"},
 					{Step: "branch2"},
 				},
 			}),
 			workflow.NewStep(workflow.StepOptions{
-				Name:  "branch1",
-				Agent: &mockAgent{},
-				Prompt: &dive.Prompt{
-					Name: "branch1-task",
-					Text: "Branch 1 Task",
-				},
+				Name:   "branch1",
+				Agent:  &mockAgent{},
+				Prompt: "Branch 1 Task",
 			}),
 			workflow.NewStep(workflow.StepOptions{
-				Name:  "branch2",
-				Agent: &mockAgent{},
-				Prompt: &dive.Prompt{
-					Name: "branch2-task",
-					Text: "Branch 2 Task",
-				},
+				Name:   "branch2",
+				Agent:  &mockAgent{},
+				Prompt: "Branch 2 Task",
 			}),
 		},
 	})
@@ -187,11 +172,8 @@ func TestExecutionWithError(t *testing.T) {
 		Name: "error-workflow",
 		Steps: []*workflow.Step{
 			workflow.NewStep(workflow.StepOptions{
-				Name: "error-step",
-				Prompt: &dive.Prompt{
-					Name: "error-task",
-					Text: "Error Task",
-				},
+				Name:   "error-step",
+				Prompt: "Error Task",
 			}),
 		},
 	})
@@ -225,7 +207,7 @@ func TestExecutionWithError(t *testing.T) {
 func TestExecutionWithInputs(t *testing.T) {
 	wf, err := workflow.New(workflow.Options{
 		Name: "input-workflow",
-		Inputs: []*dive.Input{
+		Inputs: []*workflow.Input{
 			{
 				Name:     "required_input",
 				Type:     "string",
@@ -240,12 +222,9 @@ func TestExecutionWithInputs(t *testing.T) {
 		},
 		Steps: []*workflow.Step{
 			workflow.NewStep(workflow.StepOptions{
-				Name:  "input-step",
-				Agent: &mockAgent{},
-				Prompt: &dive.Prompt{
-					Name: "input-task",
-					Text: "Input Task",
-				},
+				Name:   "input-step",
+				Agent:  &mockAgent{},
+				Prompt: "Input Task",
 			}),
 		},
 	})
@@ -278,12 +257,9 @@ func TestExecutionContextCancellation(t *testing.T) {
 		Name: "cancellation-workflow",
 		Steps: []*workflow.Step{
 			workflow.NewStep(workflow.StepOptions{
-				Name:  "slow-step",
-				Agent: &mockAgent{},
-				Prompt: &dive.Prompt{
-					Name: "slow-task",
-					Text: "Slow Task",
-				},
+				Name:   "slow-step",
+				Agent:  &mockAgent{},
+				Prompt: "Slow Task",
 			}),
 		},
 	})

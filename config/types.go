@@ -49,7 +49,7 @@ type Tool struct {
 type Agent struct {
 	Name               string         `yaml:"Name,omitempty" json:"Name,omitempty"`
 	Goal               string         `yaml:"Goal,omitempty" json:"Goal,omitempty"`
-	Backstory          string         `yaml:"Backstory,omitempty" json:"Backstory,omitempty"`
+	Instructions       string         `yaml:"Instructions,omitempty" json:"Instructions,omitempty"`
 	Provider           string         `yaml:"Provider,omitempty" json:"Provider,omitempty"`
 	Model              string         `yaml:"Model,omitempty" json:"Model,omitempty"`
 	CacheControl       string         `yaml:"CacheControl,omitempty" json:"CacheControl,omitempty"`
@@ -82,21 +82,12 @@ type Output struct {
 	Document    string `yaml:"Document,omitempty" json:"Document,omitempty"`
 }
 
-// Prompt is a serializable representation of a prompt
-type Prompt struct {
-	Name         string   `yaml:"Name,omitempty" json:"Name,omitempty"`
-	Text         string   `yaml:"Text,omitempty" json:"Text,omitempty"`
-	Context      []string `yaml:"Context,omitempty" json:"Context,omitempty"`
-	Output       string   `yaml:"Output,omitempty" json:"Output,omitempty"`
-	OutputFormat string   `yaml:"OutputFormat,omitempty" json:"OutputFormat,omitempty"`
-}
-
 // Step represents a single step in a workflow
 type Step struct {
 	Type       string         `yaml:"Type,omitempty" json:"Type,omitempty"`
 	Name       string         `yaml:"Name,omitempty" json:"Name,omitempty"`
 	Agent      string         `yaml:"Agent,omitempty" json:"Agent,omitempty"`
-	Prompt     interface{}    `yaml:"Prompt,omitempty" json:"Prompt,omitempty"`
+	Prompt     string         `yaml:"Prompt,omitempty" json:"Prompt,omitempty"`
 	Store      string         `yaml:"Store,omitempty" json:"Store,omitempty"`
 	Action     string         `yaml:"Action,omitempty" json:"Action,omitempty"`
 	Parameters map[string]any `yaml:"Parameters,omitempty" json:"Parameters,omitempty"`
