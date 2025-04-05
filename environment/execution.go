@@ -596,13 +596,13 @@ func (e *Execution) runPath(ctx context.Context, path *executionPath, updates ch
 
 	logger.Info("running path", "step", path.currentStep.Name())
 
-	defer func() {
-		if r := recover(); r != nil {
-			err := fmt.Errorf("path %s panicked: %v", path.id, r)
-			e.updatePathError(path.id, err)
-			updates <- pathUpdate{pathID: path.id, err: err}
-		}
-	}()
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		err := fmt.Errorf("path %s panicked: %v", path.id, r)
+	// 		e.updatePathError(path.id, err)
+	// 		updates <- pathUpdate{pathID: path.id, err: err}
+	// 	}
+	// }()
 
 	for {
 		// Update path state to running

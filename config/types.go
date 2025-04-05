@@ -61,6 +61,19 @@ type Agent struct {
 	ToolIterationLimit int            `yaml:"ToolIterationLimit,omitempty" json:"ToolIterationLimit,omitempty"`
 	DateAwareness      *bool          `yaml:"DateAwareness,omitempty" json:"DateAwareness,omitempty"`
 	SystemPrompt       string         `yaml:"SystemPrompt,omitempty" json:"SystemPrompt,omitempty"`
+	ModelSettings      *ModelSettings `yaml:"ModelSettings,omitempty" json:"ModelSettings,omitempty"`
+}
+
+// ModelSettings is used to configure an Agent LLM
+type ModelSettings struct {
+	Temperature       *float64 `yaml:"Temperature,omitempty" json:"Temperature,omitempty"`
+	PresencePenalty   *float64 `yaml:"PresencePenalty,omitempty" json:"PresencePenalty,omitempty"`
+	FrequencyPenalty  *float64 `yaml:"FrequencyPenalty,omitempty" json:"FrequencyPenalty,omitempty"`
+	ReasoningBudget   *int     `yaml:"ReasoningBudget,omitempty" json:"ReasoningBudget,omitempty"`
+	ReasoningEffort   string   `yaml:"ReasoningEffort,omitempty" json:"ReasoningEffort,omitempty"`
+	MaxTokens         int      `yaml:"MaxTokens,omitempty" json:"MaxTokens,omitempty"`
+	ToolChoice        string   `yaml:"ToolChoice,omitempty" json:"ToolChoice,omitempty"`
+	ParallelToolCalls *bool    `yaml:"ParallelToolCalls,omitempty" json:"ParallelToolCalls,omitempty"`
 }
 
 // Input represents an input parameter for a task or workflow

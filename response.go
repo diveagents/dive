@@ -67,6 +67,9 @@ func (r *Response) OutputText() string {
 	var messages []string
 	for _, item := range r.Items {
 		if item.Type == ResponseItemTypeMessage {
+			if item.Message == nil {
+				continue
+			}
 			for _, content := range item.Message.Content {
 				if content.Type == llm.ContentTypeText {
 					messages = append(messages, content.Text)

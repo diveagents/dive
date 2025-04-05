@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/diveagents/dive"
+	"github.com/diveagents/dive/llm"
 	"github.com/diveagents/dive/slogger"
 	"github.com/diveagents/dive/workflow"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,22 @@ func (m *mockAgent) SetEnvironment(env dive.Environment) error {
 }
 
 func (m *mockAgent) CreateResponse(ctx context.Context, opts ...dive.Option) (*dive.Response, error) {
-	return nil, nil
+	return &dive.Response{
+		ID:        "test-response",
+		Model:     "mock-model",
+		CreatedAt: time.Now(),
+		Items: []*dive.ResponseItem{
+			{
+				Type: dive.ResponseItemTypeMessage,
+				Message: &llm.Message{
+					Role: llm.Assistant,
+					Content: []*llm.Content{
+						{Type: llm.ContentTypeText, Text: "test output"},
+					},
+				},
+			},
+		},
+	}, nil
 }
 
 func (m *mockAgent) StreamResponse(ctx context.Context, opts ...dive.Option) (dive.ResponseStream, error) {

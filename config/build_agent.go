@@ -55,6 +55,27 @@ func buildAgent(agentDef Agent, config Config, tools map[string]llm.Tool) (dive.
 		}
 	}
 
+	var modelSettings *agent.ModelSettings
+	if agentDef.ModelSettings != nil {
+		var toolChoice llm.ToolChoice
+		if agentDef.ModelSettings.ToolChoice != "" {
+			toolChoice = llm.ToolChoice(agentDef.ModelSettings.ToolChoice)
+			if !toolChoice.IsValid() {
+				return nil, fmt.Errorf("invalid tool choice: %q", agentDef.ModelSettings.ToolChoice)
+			}
+		}
+		modelSettings = &agent.ModelSettings{
+			Temperature:       agentDef.ModelSettings.Temperature,
+			PresencePenalty:   agentDef.ModelSettings.PresencePenalty,
+			FrequencyPenalty:  agentDef.ModelSettings.FrequencyPenalty,
+			ReasoningBudget:   agentDef.ModelSettings.ReasoningBudget,
+			ReasoningEffort:   agentDef.ModelSettings.ReasoningEffort,
+			MaxTokens:         agentDef.ModelSettings.MaxTokens,
+			ParallelToolCalls: agentDef.ModelSettings.ParallelToolCalls,
+			ToolChoice:        toolChoice,
+		}
+	}
+
 	return agent.New(agent.Options{
 		Name:                 agentDef.Name,
 		Goal:                 agentDef.Goal,
@@ -68,5 +89,6 @@ func buildAgent(agentDef Agent, config Config, tools map[string]llm.Tool) (dive.
 		ToolIterationLimit:   agentDef.ToolIterationLimit,
 		DateAwareness:        agentDef.DateAwareness,
 		SystemPromptTemplate: agentDef.SystemPrompt,
+		ModelSettings:        modelSettings,
 	})
 }

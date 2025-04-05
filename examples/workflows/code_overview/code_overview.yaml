@@ -5,7 +5,6 @@ Config:
   LLM:
     DefaultProvider: anthropic
     DefaultModel: claude-3-7-sonnet-20250219
-    CacheControl: ephemeral
   Logging:
     Level: info
 
@@ -41,8 +40,6 @@ Workflows:
         Agent: Engineer
         Prompt: |
           List all files in the directory: "${inputs.directory}"
-        Output: The list of file names
-        OutputFormat: Markdown
         Store: file_list
 
       - Name: Read Key Files

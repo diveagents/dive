@@ -5,7 +5,6 @@ Config:
   LLM:
     DefaultProvider: anthropic
     DefaultModel: claude-3-7-sonnet-20250219
-    CacheControl: ephemeral
   Logging:
     Level: info
 
