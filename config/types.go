@@ -2,7 +2,7 @@ package config
 
 // LLMConfig is used to configure LLM related settings
 type LLMConfig struct {
-	CacheControl    string `yaml:"CacheControl,omitempty" json:"CacheControl,omitempty"`
+	Caching         *bool  `yaml:"Caching,omitempty" json:"Caching,omitempty"`
 	DefaultProvider string `yaml:"DefaultProvider,omitempty" json:"DefaultProvider,omitempty"`
 	DefaultModel    string `yaml:"DefaultModel,omitempty" json:"DefaultModel,omitempty"`
 }
@@ -50,16 +50,17 @@ type Agent struct {
 	Name               string         `yaml:"Name,omitempty" json:"Name,omitempty"`
 	Goal               string         `yaml:"Goal,omitempty" json:"Goal,omitempty"`
 	Instructions       string         `yaml:"Instructions,omitempty" json:"Instructions,omitempty"`
-	Provider           string         `yaml:"Provider,omitempty" json:"Provider,omitempty"`
-	Model              string         `yaml:"Model,omitempty" json:"Model,omitempty"`
-	CacheControl       string         `yaml:"CacheControl,omitempty" json:"CacheControl,omitempty"`
-	Tools              []string       `yaml:"Tools,omitempty" json:"Tools,omitempty"`
 	IsSupervisor       bool           `yaml:"IsSupervisor,omitempty" json:"IsSupervisor,omitempty"`
 	Subordinates       []string       `yaml:"Subordinates,omitempty" json:"Subordinates,omitempty"`
-	ResponseTimeout    string         `yaml:"ResponseTimeout,omitempty" json:"ResponseTimeout,omitempty"`
-	LogLevel           string         `yaml:"LogLevel,omitempty" json:"LogLevel,omitempty"`
+	Provider           string         `yaml:"Provider,omitempty" json:"Provider,omitempty"`
+	Model              string         `yaml:"Model,omitempty" json:"Model,omitempty"`
+	Tools              []string       `yaml:"Tools,omitempty" json:"Tools,omitempty"`
+	ToolChoice         string         `yaml:"ToolChoice,omitempty" json:"ToolChoice,omitempty"`
+	ResponseTimeout    any            `yaml:"ResponseTimeout,omitempty" json:"ResponseTimeout,omitempty"`
 	ToolConfig         map[string]any `yaml:"ToolConfig,omitempty" json:"ToolConfig,omitempty"`
 	ToolIterationLimit int            `yaml:"ToolIterationLimit,omitempty" json:"ToolIterationLimit,omitempty"`
+	DateAwareness      *bool          `yaml:"DateAwareness,omitempty" json:"DateAwareness,omitempty"`
+	SystemPrompt       string         `yaml:"SystemPrompt,omitempty" json:"SystemPrompt,omitempty"`
 }
 
 // Input represents an input parameter for a task or workflow

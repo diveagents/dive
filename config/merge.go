@@ -17,8 +17,8 @@ func Merge(base, override *Environment) *Environment {
 	}
 
 	// Merge config
-	if override.Config.LLM.CacheControl != "" {
-		result.Config.LLM.CacheControl = override.Config.LLM.CacheControl
+	if override.Config.LLM.Caching != nil {
+		result.Config.LLM.Caching = override.Config.LLM.Caching
 	}
 	if override.Config.LLM.DefaultProvider != "" {
 		result.Config.LLM.DefaultProvider = override.Config.LLM.DefaultProvider

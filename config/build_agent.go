@@ -38,28 +38,35 @@ func buildAgent(agentDef Agent, config Config, tools map[string]llm.Tool) (dive.
 	}
 
 	var responseTimeout time.Duration
-	if agentDef.ResponseTimeout != "" {
+	if agentDef.ResponseTimeout != nil {
 		var err error
-		responseTimeout, err = time.ParseDuration(agentDef.ResponseTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("invalid response timeout: %w", err)
+		switch v := agentDef.ResponseTimeout.(type) {
+		case string:
+			responseTimeout, err = time.ParseDuration(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid response timeout: %w", err)
+			}
+		case int:
+			responseTimeout = time.Duration(v) * time.Second
+		case float64:
+			responseTimeout = time.Duration(int64(v)) * time.Second
+		default:
+			return nil, fmt.Errorf("invalid response timeout: %v", v)
 		}
 	}
 
-	cacheControl := agentDef.CacheControl
-	if cacheControl == "" {
-		cacheControl = config.LLM.CacheControl
-	}
-
 	return agent.New(agent.Options{
-		Name:               agentDef.Name,
-		Goal:               agentDef.Goal,
-		Instructions:       agentDef.Instructions,
-		IsSupervisor:       agentDef.IsSupervisor,
-		Subordinates:       agentDef.Subordinates,
-		Model:              model,
-		Tools:              agentTools,
-		ResponseTimeout:    responseTimeout,
-		ToolIterationLimit: agentDef.ToolIterationLimit,
+		Name:                 agentDef.Name,
+		Goal:                 agentDef.Goal,
+		Instructions:         agentDef.Instructions,
+		IsSupervisor:         agentDef.IsSupervisor,
+		Subordinates:         agentDef.Subordinates,
+		Model:                model,
+		Tools:                agentTools,
+		ToolChoice:           llm.ToolChoice(agentDef.ToolChoice),
+		ResponseTimeout:      responseTimeout,
+		ToolIterationLimit:   agentDef.ToolIterationLimit,
+		DateAwareness:        agentDef.DateAwareness,
+		SystemPromptTemplate: agentDef.SystemPrompt,
 	})
 }
