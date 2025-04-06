@@ -21,7 +21,7 @@ package environment
 // 			}
 // 			publisher.Send(ctx, &dive.Event{
 // 				Type:    "task.result",
-// 				Payload: &dive.TaskResult{Content: content},
+// 				Payload: &dive.StepResult{Content: content},
 // 			})
 // 			return stream, nil
 // 		},
@@ -97,7 +97,7 @@ package environment
 // 				defer publisher.Close()
 // 				publisher.Send(ctx, &dive.Event{
 // 					Type:    "task.result",
-// 					Payload: &dive.TaskResult{Content: "Written content"},
+// 					Payload: &dive.StepResult{Content: "Written content"},
 // 				})
 // 			}()
 // 			return stream, nil
@@ -112,7 +112,7 @@ package environment
 // 				defer publisher.Close()
 // 				publisher.Send(ctx, &dive.Event{
 // 					Type:    "task.result",
-// 					Payload: &dive.TaskResult{Content: "Edited content"},
+// 					Payload: &dive.StepResult{Content: "Edited content"},
 // 				})
 // 			}()
 // 			return stream, nil
@@ -183,7 +183,7 @@ package environment
 // 				defer publisher.Close()
 // 				publisher.Send(ctx, &dive.Event{
 // 					Type:    "task.result",
-// 					Payload: &dive.TaskResult{Content: "Task completed"},
+// 					Payload: &dive.StepResult{Content: "Task completed"},
 // 				})
 // 			}()
 // 			return stream, nil
@@ -251,7 +251,7 @@ package environment
 // 					// Task was allowed to complete
 // 					publisher.Send(ctx, &dive.Event{
 // 						Type:    "task.result",
-// 						Payload: &dive.TaskResult{Content: "Completed"},
+// 						Payload: &dive.StepResult{Content: "Completed"},
 // 					})
 // 				}
 // 			}()

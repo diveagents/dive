@@ -9,6 +9,21 @@ import (
 	"github.com/diveagents/dive"
 )
 
+var (
+	actionsRegistry = make(map[string]Action)
+)
+
+// RegisterAction adds a new action for use in workflows
+func RegisterAction(action Action) {
+	actionsRegistry[action.Name()] = action
+}
+
+// GetAction returns an action by name
+func GetAction(name string) (Action, bool) {
+	action, ok := actionsRegistry[name]
+	return action, ok
+}
+
 // Action represents a named action that can be executed as part of a workflow
 type Action interface {
 	Name() string

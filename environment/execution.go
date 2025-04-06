@@ -427,10 +427,10 @@ func (e *Execution) evaluateRisorExpression(ctx context.Context, codeStr string)
 	return resultItems, nil
 }
 
-// executeStepCore handles the core execution of a single step without "Each" logic
-func (e *Execution) executeStepCore(ctx context.Context, step *workflow.Step, agent dive.Agent) (*dive.TaskResult, error) {
-	var result *dive.TaskResult
+func (e *Execution) executeStepCore(ctx context.Context, step *workflow.Step, agent dive.Agent) (*dive.StepResult, error) {
 	var err error
+	var result *dive.StepResult
+
 	// Handle different step types
 	switch step.Type() {
 	case "prompt":
@@ -453,7 +453,7 @@ func (e *Execution) executeStepCore(ctx context.Context, step *workflow.Step, ag
 }
 
 // handleStepExecution executes a single step and returns the result
-func (e *Execution) handleStepExecution(ctx context.Context, path *executionPath, agent dive.Agent) (*dive.TaskResult, error) {
+func (e *Execution) handleStepExecution(ctx context.Context, path *executionPath, agent dive.Agent) (*dive.StepResult, error) {
 	step := path.currentStep
 	e.updatePathState(path.id, func(state *PathState) {
 		state.CurrentStep = step
@@ -465,7 +465,7 @@ func (e *Execution) handleStepExecution(ctx context.Context, path *executionPath
 }
 
 // executeStepEach handles the execution of a step that has an each block
-func (e *Execution) executeStepEach(ctx context.Context, step *workflow.Step, agent dive.Agent) (*dive.TaskResult, error) {
+func (e *Execution) executeStepEach(ctx context.Context, step *workflow.Step, agent dive.Agent) (*dive.StepResult, error) {
 	each := step.Each()
 
 	// Resolve the items to iterate over
@@ -475,7 +475,7 @@ func (e *Execution) executeStepEach(ctx context.Context, step *workflow.Step, ag
 	}
 
 	// Execute the step for each item and capture the results
-	var results []*dive.TaskResult
+	var results []*dive.StepResult
 	for _, item := range items {
 		if varName := each.As; varName != "" {
 			e.scriptGlobals[varName] = object.NewString(item)
@@ -499,40 +499,36 @@ func (e *Execution) executeStepEach(ctx context.Context, step *workflow.Step, ag
 		itemTexts = append(itemTexts, itemText)
 	}
 
-	return &dive.TaskResult{
+	return &dive.StepResult{
 		Content: strings.Join(itemTexts, "\n\n"),
 		Format:  dive.OutputFormatMarkdown,
 	}, nil
 }
 
-// handlePromptStep handles a prompt step by creating a task and assigning it to an agent
-func (e *Execution) handlePromptStep(ctx context.Context, step *workflow.Step, agent dive.Agent) (*dive.TaskResult, error) {
-	// Create a task from the prompt
+func (e *Execution) handlePromptStep(ctx context.Context, step *workflow.Step, agent dive.Agent) (*dive.StepResult, error) {
 	prompt := step.Prompt()
 	if prompt == "" {
 		return nil, fmt.Errorf("prompt step %q has no prompt", step.Name())
 	}
 
 	// Evaluate the prompt text as a template
-	promptText, err := eval.Eval(ctx, prompt, e.scriptGlobals)
+	promptText, err := e.evalString(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create prompt template: %w", err)
 	}
 
-	// Execute the task
 	result, err := agent.CreateResponse(ctx, dive.WithInput(promptText))
 	if err != nil {
 		e.logger.Error("task execution failed", "step", step.Name(), "error", err)
 		return nil, err
 	}
 
-	return &dive.TaskResult{
+	return &dive.StepResult{
 		Content: result.OutputText(),
 	}, nil
 }
 
-// handleActionStep handles an action step by looking up and executing the action
-func (e *Execution) handleActionStep(ctx context.Context, step *workflow.Step) (*dive.TaskResult, error) {
+func (e *Execution) handleActionStep(ctx context.Context, step *workflow.Step) (*dive.StepResult, error) {
 	actionName := step.Action()
 	if actionName == "" {
 		return nil, fmt.Errorf("action step %q has no action name", step.Name())
@@ -547,7 +543,7 @@ func (e *Execution) handleActionStep(ctx context.Context, step *workflow.Step) (
 	for name, value := range step.Parameters() {
 		// If the value is a string that looks like a template, evaluate it
 		if strValue, ok := value.(string); ok && strings.Contains(strValue, "${") {
-			evaluated, err := eval.Eval(ctx, strValue, e.scriptGlobals)
+			evaluated, err := e.evalString(ctx, strValue)
 			if err != nil {
 				return nil, fmt.Errorf("failed to evaluate parameter template: %w", err)
 			}
@@ -569,7 +565,7 @@ func (e *Execution) handleActionStep(ctx context.Context, step *workflow.Step) (
 	if result != nil {
 		content = fmt.Sprintf("%v", result)
 	}
-	return &dive.TaskResult{Content: content}, nil
+	return &dive.StepResult{Content: content}, nil
 }
 
 // updatePathError updates the path state with an error
@@ -595,14 +591,6 @@ func (e *Execution) runPath(ctx context.Context, path *executionPath, updates ch
 		With("execution_id", e.id)
 
 	logger.Info("running path", "step", path.currentStep.Name())
-
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		err := fmt.Errorf("path %s panicked: %v", path.id, r)
-	// 		e.updatePathError(path.id, err)
-	// 		updates <- pathUpdate{pathID: path.id, err: err}
-	// 	}
-	// }()
 
 	for {
 		// Update path state to running
@@ -708,6 +696,17 @@ func (e *Execution) addPath(path *executionPath) *PathState {
 	}
 	e.paths[path.id] = state
 	return state
+}
+
+func (e *Execution) evalString(ctx context.Context, s string) (string, error) {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	result, err := eval.Eval(ctx, s, e.scriptGlobals)
+	if err != nil {
+		return "", err
+	}
+	return result, nil
 }
 
 // GetError returns the top-level execution error, if any.

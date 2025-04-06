@@ -299,7 +299,7 @@ func TestExecutionContextCancellation(t *testing.T) {
 		// 		time.Sleep(100 * time.Millisecond)
 		// 		publisher.Send(ctx, &dive.Event{
 		// 			Type: "task.completed",
-		// 			Payload: &dive.TaskResult{
+		// 			Payload: &dive.StepResult{
 		// 				Content: "completed",
 		// 			},
 		// 		})

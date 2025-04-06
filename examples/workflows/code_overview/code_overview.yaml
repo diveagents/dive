@@ -6,7 +6,7 @@ Config:
     DefaultProvider: anthropic
     DefaultModel: claude-3-7-sonnet-20250219
   Logging:
-    Level: info
+    Level: debug
 
 Tools:
   - Name: Web.Search
@@ -26,6 +26,9 @@ Agents:
       - Web.Fetch
       - Directory.List
       - File.Read
+    ModelSettings:
+      MaxTokens: 16384
+      ReasoningEffort: medium
 
 Workflows:
   - Name: Code Overview

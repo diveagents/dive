@@ -52,24 +52,8 @@ func NewTask(opts TaskOptions) *Task {
 	}
 }
 
-// // PromptContext is a named block of information carried by a Prompt
-// type PromptContext struct {
-// 	Name        string `json:"name"`
-// 	Description string `json:"description,omitempty"`
-// 	Text        string `json:"text,omitempty"`
-// }
-
-// // Prompt is a structured representation of an LLM prompt
-// type Prompt struct {
-// 	Name         string           `json:"name"`
-// 	Text         string           `json:"text,omitempty"`
-// 	Context      []*PromptContext `json:"context,omitempty"`
-// 	Output       string           `json:"output,omitempty"`
-// 	OutputFormat OutputFormat     `json:"output_format,omitempty"`
-// }
-
-// TaskResult holds the output of a completed task.
-type TaskResult struct {
+// StepResult holds the output of a completed task.
+type StepResult struct {
 	// Content contains the raw output
 	Content string
 
@@ -78,9 +62,6 @@ type TaskResult struct {
 
 	// Object holds parsed JSON output if applicable
 	Object interface{}
-
-	// Error is set if task execution failed
-	Error error
 
 	// Usage tracks LLM token usage
 	Usage llm.Usage

@@ -95,7 +95,7 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 	// Agents
 	agents := make([]dive.Agent, 0, len(env.Agents))
 	for _, agentDef := range env.Agents {
-		agent, err := buildAgent(agentDef, env.Config, toolsMap)
+		agent, err := buildAgent(agentDef, env.Config, toolsMap, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build agent %s: %w", agentDef.Name, err)
 		}
