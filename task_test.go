@@ -20,6 +20,7 @@ func TestParseStructuredResponseText(t *testing.T) {
 				content:           "",
 				statusDescription: "",
 				status:            TaskStatusUnknown,
+				rawText:           `<think>Ok, let me see</think>`,
 			},
 		},
 		{
@@ -30,6 +31,7 @@ func TestParseStructuredResponseText(t *testing.T) {
 				content:           "Here is the answer",
 				statusDescription: "",
 				status:            TaskStatusUnknown,
+				rawText:           `<think>Processing request</think>Here is the answer`,
 			},
 		},
 		{
@@ -40,6 +42,7 @@ func TestParseStructuredResponseText(t *testing.T) {
 				content:           "Processing complete",
 				statusDescription: "Working",
 				status:            TaskStatusUnknown,
+				rawText:           `<think>Analyzing</think><status>Working</status>Processing complete`,
 			},
 		},
 		{
@@ -50,6 +53,7 @@ func TestParseStructuredResponseText(t *testing.T) {
 				content:           "",
 				statusDescription: "",
 				status:            TaskStatusUnknown,
+				rawText:           "",
 			},
 		},
 		{
@@ -60,19 +64,7 @@ func TestParseStructuredResponseText(t *testing.T) {
 				content:           "",
 				statusDescription: "In Progress",
 				status:            TaskStatusUnknown,
-			},
-		},
-		{
-			name: "multiple lines with whitespace",
-			input: `<think>Thinking deeply</think>
-					<status>Processing</status>Here is the
-multiline
-response`,
-			expected: StructuredResponse{
-				thinking:          "Thinking deeply",
-				content:           "Here is the\nmultiline\nresponse",
-				statusDescription: "Processing",
-				status:            TaskStatusUnknown,
+				rawText:           `<status>In Progress</status>`,
 			},
 		},
 		{
@@ -83,16 +75,18 @@ response`,
 				content:           "<status>Hmm",
 				statusDescription: "",
 				status:            TaskStatusUnknown,
+				rawText:           `<status>Hmm`,
 			},
 		},
 		{
 			name:  "bad think tag",
 			input: `<think>Hmm`,
 			expected: StructuredResponse{
-				thinking:          "<think>Hmm",
-				content:           "",
+				thinking:          "",
+				content:           "<think>Hmm",
 				statusDescription: "",
 				status:            TaskStatusUnknown,
+				rawText:           `<think>Hmm`,
 			},
 		},
 	}

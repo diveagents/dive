@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 // mockAgent implements dive.Agent for testing
 type mockAgent struct {
+	err error
 }
 
 func (m *mockAgent) Name() string {
@@ -37,6 +39,9 @@ func (m *mockAgent) SetEnvironment(env dive.Environment) error {
 }
 
 func (m *mockAgent) CreateResponse(ctx context.Context, opts ...dive.Option) (*dive.Response, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
 	return &dive.Response{
 		ID:        "test-response",
 		Model:     "mock-model",
@@ -56,6 +61,9 @@ func (m *mockAgent) CreateResponse(ctx context.Context, opts ...dive.Option) (*d
 }
 
 func (m *mockAgent) StreamResponse(ctx context.Context, opts ...dive.Option) (dive.ResponseStream, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
 	stream, publisher := dive.NewEventStream()
 	publisher.Send(ctx, &dive.ResponseEvent{
 		Type: dive.EventTypeResponseCompleted,
@@ -195,7 +203,9 @@ func TestExecutionWithError(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	mockAgent := &mockAgent{}
+	mockAgent := &mockAgent{
+		err: errors.New("simulated error"),
+	}
 
 	env, err := New(Options{
 		Name:      "test-env",
