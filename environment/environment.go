@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/diveagents/dive"
+	"github.com/diveagents/dive/objects"
 	"github.com/diveagents/dive/slogger"
 	"github.com/diveagents/dive/workflow"
 )
@@ -83,13 +84,10 @@ func New(opts Options) (*Environment, error) {
 		actions[writeAction.Name()] = writeAction
 		actions[readAction.Name()] = readAction
 	}
-	getTimeAction := NewGetTimeAction()
-	actions[getTimeAction.Name()] = getTimeAction
-
+	for _, action := range actionsRegistry {
+		actions[action.Name()] = action
+	}
 	for _, action := range opts.Actions {
-		if _, exists := actions[action.Name()]; exists {
-			return nil, fmt.Errorf("action already registered: %s", action.Name())
-		}
 		actions[action.Name()] = action
 	}
 
@@ -218,20 +216,30 @@ func (e *Environment) AddWorkflow(workflow *workflow.Workflow) error {
 
 // ExecuteWorkflow starts a new workflow and immediately returns the execution,
 // which will be running in the background.
-func (e *Environment) ExecuteWorkflow(ctx context.Context, name string, inputs map[string]interface{}) (*Execution, error) {
+func (e *Environment) ExecuteWorkflow(ctx context.Context, opts ExecutionOptions) (*Execution, error) {
 	if !e.started {
 		return nil, fmt.Errorf("environment not started")
 	}
-	if name == "" {
+	if opts.WorkflowName == "" {
 		if e.defaultWorkflow == "" {
 			return nil, fmt.Errorf("a workflow name is required")
 		}
-		name = e.defaultWorkflow
+		opts.WorkflowName = e.defaultWorkflow
 	}
 
-	workflow, exists := e.workflows[name]
+	workflow, exists := e.workflows[opts.WorkflowName]
 	if !exists {
-		return nil, fmt.Errorf("workflow not found: %s", name)
+		return nil, fmt.Errorf("workflow not found: %s", opts.WorkflowName)
+	}
+
+	inputs := opts.Inputs
+	if inputs == nil {
+		inputs = make(map[string]interface{})
+	}
+
+	logger := opts.Logger
+	if logger == nil {
+		logger = e.logger
 	}
 
 	// Build up the input variables with defaults and validation
@@ -250,24 +258,28 @@ func (e *Environment) ExecuteWorkflow(ctx context.Context, name string, inputs m
 		processedInputs[input.Name] = value
 	}
 
-	execution := NewExecution(ExecutionOptions{
-		ID:          dive.NewID(),
-		Environment: e,
-		Workflow:    workflow,
-		Status:      StatusPending,
-		StartTime:   time.Now(),
-		Inputs:      processedInputs,
-		Logger:      e.logger,
-	})
+	execution := &Execution{
+		id:             dive.NewID(),
+		environment:    e,
+		workflow:       workflow,
+		status:         StatusPending,
+		startTime:      time.Now(),
+		inputs:         processedInputs,
+		logger:         logger,
+		paths:          make(map[string]*PathState),
+		showStepOutput: opts.ShowStepOutput,
+		scriptGlobals:  map[string]any{"inputs": processedInputs},
+	}
+	if e.documentRepo != nil {
+		execution.scriptGlobals["documents"] = objects.NewDocumentRepository(e.documentRepo)
+	}
+	execution.doneWg.Add(1)
 	e.executions[execution.ID()] = execution
 
-	go func() {
-		if err := execution.Run(ctx); err != nil {
-			e.logger.Error("workflow execution failed", "error", err)
-			return
-		}
-	}()
-
+	if err := execution.Run(ctx); err != nil {
+		logger.Error("failed to start workflow", "error", err)
+		return nil, err
+	}
 	return execution, nil
 }
 
@@ -275,13 +287,4 @@ func (e *Environment) ExecuteWorkflow(ctx context.Context, name string, inputs m
 func (e *Environment) GetAction(name string) (Action, bool) {
 	action, ok := e.actions[name]
 	return action, ok
-}
-
-// RegisterAction registers a new action
-func (e *Environment) RegisterAction(action Action) error {
-	if _, exists := e.actions[action.Name()]; exists {
-		return fmt.Errorf("action already registered: %s", action.Name())
-	}
-	e.actions[action.Name()] = action
-	return nil
 }

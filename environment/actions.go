@@ -18,10 +18,9 @@ func RegisterAction(action Action) {
 	actionsRegistry[action.Name()] = action
 }
 
-// GetAction returns an action by name
-func GetAction(name string) (Action, bool) {
-	action, ok := actionsRegistry[name]
-	return action, ok
+func init() {
+	RegisterAction(NewGetTimeAction())
+	RegisterAction(NewPrintAction())
 }
 
 // Action represents a named action that can be executed as part of a workflow
@@ -102,4 +101,24 @@ func (a *GetTimeAction) Name() string {
 
 func (a *GetTimeAction) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 	return time.Now().Format(time.RFC3339), nil
+}
+
+type PrintAction struct {
+}
+
+func NewPrintAction() *PrintAction {
+	return &PrintAction{}
+}
+
+func (a *PrintAction) Name() string {
+	return "Print"
+}
+
+func (a *PrintAction) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	message, ok := params["Message"].(string)
+	if !ok {
+		return nil, errors.New("message parameter must be a string")
+	}
+	fmt.Println(message)
+	return nil, nil
 }

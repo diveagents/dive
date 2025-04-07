@@ -1,18 +1,6 @@
 Name: Current Time
 Description: Show the current time
 
-Config:
-  LLM:
-    DefaultProvider: anthropic
-    DefaultModel: claude-3-7-sonnet-20250219
-  Logging:
-    Level: info
-
-Agents:
-  - Name: Assistant
-    Instructions: |
-      Act as a helpful assistant
-
 Workflows:
   - Name: Show Current Time
     Steps:
@@ -21,6 +9,11 @@ Workflows:
         Store: current_time
 
       - Name: Print Current Time
+        Action: Print
+        Parameters:
+          Message: |
+            The current time is ${current_time}
+
+      - Name: Hello
         Prompt: |
-          The current time is: ${current_time}
-          Respond with the current wall clock time.
+          Say hello to the user.

@@ -118,7 +118,9 @@ func main() {
 	}
 	defer env.Stop(ctx)
 
-	execution, err := env.ExecuteWorkflow(ctx, w.Name(), map[string]interface{}{})
+	execution, err := env.ExecuteWorkflow(ctx, environment.ExecutionOptions{
+		WorkflowName: w.Name(),
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

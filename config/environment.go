@@ -82,7 +82,11 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 	if buildOpts.Logger != nil {
 		logger = buildOpts.Logger
 	} else if env.Config.Logging.Level != "" {
-		level := slogger.LevelFromString(env.Config.Logging.Level)
+		levelStr := env.Config.Logging.Level
+		if !isValidLogLevel(levelStr) {
+			return nil, fmt.Errorf("invalid log level: %s", levelStr)
+		}
+		level := slogger.LevelFromString(levelStr)
 		logger = slogger.New(level)
 	}
 

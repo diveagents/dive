@@ -157,3 +157,7 @@ type Document struct {
 	Content     string `yaml:"Content,omitempty" json:"Content,omitempty"`
 	ContentType string `yaml:"ContentType,omitempty" json:"ContentType,omitempty"`
 }
+
+func isValidLogLevel(level string) bool {
+	return level == "debug" || level == "info" || level == "warn" || level == "error"
+}

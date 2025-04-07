@@ -93,16 +93,18 @@ func TestNewExecution(t *testing.T) {
 
 	env := &Environment{}
 	require.NoError(t, env.Start(context.Background()))
-	exec := NewExecution(ExecutionOptions{
-		ID:          "test-exec",
-		Environment: env,
-		Workflow:    wf,
-		Logger:      slogger.NewDevNullLogger(),
+
+	execution, err := env.ExecuteWorkflow(context.Background(), ExecutionOptions{
+		WorkflowName: wf.Name(),
+		Inputs:       map[string]interface{}{},
 	})
-	require.Equal(t, "test-exec", exec.ID())
-	require.Equal(t, wf, exec.Workflow())
-	require.Equal(t, env, exec.Environment())
-	require.Equal(t, StatusPending, exec.Status())
+	require.NoError(t, err)
+	require.NotNil(t, execution)
+
+	require.Equal(t, "test-exec", execution.ID())
+	require.Equal(t, wf, execution.Workflow())
+	require.Equal(t, env, execution.Environment())
+	require.Equal(t, StatusPending, execution.Status())
 }
 
 func TestExecutionBasicFlow(t *testing.T) {
@@ -127,7 +129,10 @@ func TestExecutionBasicFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, env.Start(context.Background()))
 
-	execution, err := env.ExecuteWorkflow(context.Background(), wf.Name(), map[string]interface{}{})
+	execution, err := env.ExecuteWorkflow(context.Background(), ExecutionOptions{
+		WorkflowName: wf.Name(),
+		Inputs:       map[string]interface{}{},
+	})
 	require.NoError(t, err)
 	require.NotNil(t, execution)
 
@@ -173,7 +178,10 @@ func TestExecutionWithBranching(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, env.Start(context.Background()))
 
-	execution, err := env.ExecuteWorkflow(context.Background(), wf.Name(), map[string]interface{}{})
+	execution, err := env.ExecuteWorkflow(context.Background(), ExecutionOptions{
+		WorkflowName: wf.Name(),
+		Inputs:       map[string]interface{}{},
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, execution.Wait())
@@ -215,7 +223,10 @@ func TestExecutionWithError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, env.Start(context.Background()))
 
-	execution, err := env.ExecuteWorkflow(context.Background(), wf.Name(), map[string]interface{}{})
+	execution, err := env.ExecuteWorkflow(context.Background(), ExecutionOptions{
+		WorkflowName: wf.Name(),
+		Inputs:       map[string]interface{}{},
+	})
 	require.NoError(t, err)
 
 	err = execution.Wait()
@@ -265,13 +276,18 @@ func TestExecutionWithInputs(t *testing.T) {
 	require.NoError(t, env.Start(context.Background()))
 
 	// Test missing required input
-	_, err = env.ExecuteWorkflow(context.Background(), wf.Name(), map[string]interface{}{})
+	_, err = env.ExecuteWorkflow(context.Background(), ExecutionOptions{
+		WorkflowName: wf.Name(),
+	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "required input")
 
 	// Test with required input
-	execution, err := env.ExecuteWorkflow(context.Background(), wf.Name(), map[string]interface{}{
-		"required_input": "test_value",
+	execution, err := env.ExecuteWorkflow(context.Background(), ExecutionOptions{
+		WorkflowName: wf.Name(),
+		Inputs: map[string]interface{}{
+			"required_input": "test_value",
+		},
 	})
 	require.NoError(t, err)
 	require.NoError(t, execution.Wait())
@@ -317,7 +333,9 @@ func TestExecutionContextCancellation(t *testing.T) {
 	require.NoError(t, env.Start(context.Background()))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	execution, err := env.ExecuteWorkflow(ctx, wf.Name(), map[string]interface{}{})
+	execution, err := env.ExecuteWorkflow(ctx, ExecutionOptions{
+		WorkflowName: wf.Name(),
+	})
 	require.NoError(t, err)
 
 	// Cancel the context before the task completes
