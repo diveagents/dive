@@ -273,7 +273,6 @@ func (e *Environment) ExecuteWorkflow(ctx context.Context, opts ExecutionOptions
 	if e.documentRepo != nil {
 		execution.scriptGlobals["documents"] = objects.NewDocumentRepository(e.documentRepo)
 	}
-	execution.doneWg.Add(1)
 	e.executions[execution.ID()] = execution
 
 	if err := execution.Run(ctx); err != nil {

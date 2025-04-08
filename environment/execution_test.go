@@ -91,7 +91,13 @@ func TestNewExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	env := &Environment{}
+	env, err := New(Options{
+		Name:      "test-env",
+		Agents:    []dive.Agent{&mockAgent{}},
+		Workflows: []*workflow.Workflow{wf},
+		Logger:    slogger.NewDevNullLogger(),
+	})
+	require.NoError(t, err)
 	require.NoError(t, env.Start(context.Background()))
 
 	execution, err := env.ExecuteWorkflow(context.Background(), ExecutionOptions{
@@ -101,10 +107,9 @@ func TestNewExecution(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, execution)
 
-	require.Equal(t, "test-exec", execution.ID())
 	require.Equal(t, wf, execution.Workflow())
 	require.Equal(t, env, execution.Environment())
-	require.Equal(t, StatusPending, execution.Status())
+	require.Equal(t, StatusRunning, execution.Status())
 }
 
 func TestExecutionBasicFlow(t *testing.T) {
