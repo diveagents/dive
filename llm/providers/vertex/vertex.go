@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/getstingrai/dive/llm"
-	"github.com/getstingrai/dive/providers"
+	"github.com/diveagents/dive/llm"
+	"github.com/diveagents/dive/llm/providers"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"golang.org/x/oauth2/google"

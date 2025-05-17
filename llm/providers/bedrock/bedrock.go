@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/getstingrai/dive/llm"
+	"github.com/diveagents/dive/llm"
 )
 
 // var _ llm.StreamingLLM = &Provider{}
