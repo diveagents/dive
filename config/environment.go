@@ -71,6 +71,8 @@ func (env *Environment) Write(w io.Writer) error {
 	return yaml.NewEncoder(w).Encode(env)
 }
 
+// No longer need conversion function since config.MCPServer implements mcp.ServerConfig
+
 // Build creates a new Environment from the configuration
 func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, error) {
 	buildOpts := &BuildOptions{}
@@ -196,6 +198,14 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		threadRepo = agent.NewMemoryThreadRepository()
 	}
 
+	// Collect MCP servers from all providers
+	var mcpServers []environment.MCPServerConfig
+	for _, provider := range env.Config.Providers {
+		for _, mcpServer := range provider.MCPServers {
+			mcpServers = append(mcpServers, mcpServer)
+		}
+	}
+
 	// Environment
 	result, err := environment.New(environment.Options{
 		Name:               env.Name,
@@ -207,6 +217,7 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		DocumentRepository: docRepo,
 		ThreadRepository:   threadRepo,
 		Confirmer:          confirmer,
+		MCPServers:         mcpServers,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create environment: %w", err)

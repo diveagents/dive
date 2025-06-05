@@ -15,6 +15,40 @@ type MCPServer struct {
 	ToolConfiguration  *MCPToolConfiguration `yaml:"ToolConfiguration,omitempty" json:"ToolConfiguration,omitempty"`
 }
 
+// Implement mcp.ServerConfig interface to avoid circular imports
+func (s MCPServer) GetType() string {
+	return s.Type
+}
+
+func (s MCPServer) GetName() string {
+	return s.Name
+}
+
+func (s MCPServer) GetURL() string {
+	return s.URL
+}
+
+func (s MCPServer) GetAuthorizationToken() string {
+	return s.AuthorizationToken
+}
+
+func (s MCPServer) IsToolEnabled() bool {
+	if s.ToolConfiguration == nil {
+		return true // default to enabled
+	}
+	if s.ToolConfiguration.Enabled == nil {
+		return true // default to enabled
+	}
+	return *s.ToolConfiguration.Enabled
+}
+
+func (s MCPServer) GetAllowedTools() []string {
+	if s.ToolConfiguration == nil {
+		return nil
+	}
+	return s.ToolConfiguration.AllowedTools
+}
+
 // Provider is used to configure an LLM provider
 type Provider struct {
 	Name           string            `yaml:"Name" json:"Name"`
