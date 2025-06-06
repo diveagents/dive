@@ -18,6 +18,8 @@ type MCPServerConfig = interface {
 	GetType() string
 	GetName() string
 	GetURL() string
+	GetEnv() map[string]string
+	GetArgs() []string
 	GetAuthorizationToken() string
 	IsToolEnabled() bool
 	GetAllowedTools() []string
@@ -60,6 +62,7 @@ type Options struct {
 	AutoStart          bool
 	Confirmer          dive.Confirmer
 	MCPServers         []MCPServerConfig
+	MCPManager         *mcp.MCPManager
 }
 
 // New returns a new Environment configured with the given options.
@@ -114,6 +117,12 @@ func New(opts Options) (*Environment, error) {
 		}
 	}
 
+	// Use provided MCP manager or create a new one
+	mcpManager := opts.MCPManager
+	if mcpManager == nil {
+		mcpManager = mcp.NewMCPManager()
+	}
+
 	env := &Environment{
 		id:              opts.ID,
 		name:            opts.Name,
@@ -127,7 +136,7 @@ func New(opts Options) (*Environment, error) {
 		documentRepo:    opts.DocumentRepository,
 		threadRepo:      opts.ThreadRepository,
 		actions:         actions,
-		mcpManager:      mcp.NewMCPManager(),
+		mcpManager:      mcpManager,
 		mcpServers:      opts.MCPServers,
 	}
 	for _, trigger := range env.triggers {
@@ -175,8 +184,8 @@ func (e *Environment) Start(ctx context.Context) error {
 		return fmt.Errorf("environment already started")
 	}
 
-	// Initialize MCP servers if configured
-	if len(e.mcpServers) > 0 {
+	// Initialize MCP servers if configured and not already initialized
+	if len(e.mcpServers) > 0 && len(e.mcpManager.GetServerNames()) == 0 {
 		// Convert MCPServerConfig to mcp.ServerConfig interface
 		serverConfigs := make([]mcp.ServerConfig, len(e.mcpServers))
 		for i, cfg := range e.mcpServers {

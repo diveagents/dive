@@ -15,6 +15,8 @@ type clientTestServerConfig struct {
 	serverType         string
 	name               string
 	url                string
+	env                map[string]string
+	args               []string
 	authorizationToken string
 	toolEnabled        bool
 	allowedTools       []string
@@ -30,6 +32,20 @@ func (c clientTestServerConfig) GetName() string {
 
 func (c clientTestServerConfig) GetURL() string {
 	return c.url
+}
+
+func (c clientTestServerConfig) GetEnv() map[string]string {
+	if c.env == nil {
+		return make(map[string]string)
+	}
+	return c.env
+}
+
+func (c clientTestServerConfig) GetArgs() []string {
+	if c.args == nil {
+		return []string{}
+	}
+	return c.args
 }
 
 func (c clientTestServerConfig) GetAuthorizationToken() string {
@@ -349,4 +365,45 @@ func TestMCPClient_Close(t *testing.T) {
 			require.Equal(t, tt.expectedConnected, mcpClient.IsConnected())
 		})
 	}
+}
+
+func TestMCPClient_Connect_StdioWithEnvAndArgs(t *testing.T) {
+	config := clientTestServerConfig{
+		serverType: "stdio",
+		name:       "test-stdio-server",
+		url:        "python",
+		env: map[string]string{
+			"API_KEY":    "test-key",
+			"DEBUG":      "true",
+			"SERVER_URL": "http://localhost:8080",
+		},
+		args: []string{
+			"server.py",
+			"--port", "3000",
+			"--verbose",
+		},
+		toolEnabled: true,
+	}
+
+	client, err := NewMCPClient(config)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	// Verify that the config methods return the expected values
+	require.Equal(t, "stdio", client.config.GetType())
+	require.Equal(t, "python", client.config.GetURL())
+
+	expectedEnv := map[string]string{
+		"API_KEY":    "test-key",
+		"DEBUG":      "true",
+		"SERVER_URL": "http://localhost:8080",
+	}
+	require.Equal(t, expectedEnv, client.config.GetEnv())
+
+	expectedArgs := []string{"server.py", "--port", "3000", "--verbose"}
+	require.Equal(t, expectedArgs, client.config.GetArgs())
+
+	// Note: We don't actually call Connect() here because it would try to start
+	// a real subprocess, which would fail in the test environment.
+	// The important part is that the configuration is properly stored and accessible.
 }

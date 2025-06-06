@@ -1,0 +1,272 @@
+Name: GitHub Assistant
+Description: A comprehensive GitHub workflow using MCP tools for repository management and issue handling
+
+Config:
+  DefaultProvider: anthropic
+  DefaultModel: claude-3-5-sonnet-20241022
+  LogLevel: info
+  ConfirmationMode: if-destructive
+  Providers:
+    - Name: anthropic
+      MCPServers:
+        - Type: http
+          Name: github-server
+          URL: 'http://localhost:8080/mcp'
+          AuthorizationToken: '${GITHUB_TOKEN}'
+          ToolConfiguration:
+            Enabled: true
+            AllowedTools:
+              - 'list_repositories'
+              - 'get_repository'
+              - 'list_issues'
+              - 'create_issue'
+              - 'get_file_contents'
+              - 'search_code'
+
+Tools:
+  - Name: Web.Search
+    Enabled: true
+  - Name: Web.Fetch
+    Enabled: true
+
+Agents:
+  - Name: GitHub Analyst
+    Goal: Analyze GitHub repositories and manage issues
+    Instructions: |
+      You are a GitHub repository analyst and issue manager. You have access to GitHub MCP tools
+      that allow you to interact with repositories, read code, manage issues, and perform searches.
+
+      Always provide clear, actionable insights and follow best practices for repository management.
+      When creating issues, use proper formatting with clear titles and detailed descriptions.
+
+  - Name: Code Reviewer
+    Goal: Review code and provide technical insights
+    Instructions: |
+      You are a code reviewer specializing in analyzing codebases for quality, structure, and
+      potential improvements. Use GitHub MCP tools to access and analyze code files.
+
+      Focus on code organization, best practices, potential issues, and architectural insights.
+
+Workflows:
+  - Name: Repository Analysis
+    Description: Comprehensive analysis of a GitHub repository including code review and issue management
+    Inputs:
+      - Name: repository_owner
+        Type: string
+        Description: The GitHub repository owner/organization
+        Default: 'diveagents'
+      - Name: repository_name
+        Type: string
+        Description: The GitHub repository name
+        Default: 'dive'
+      - Name: analysis_type
+        Type: string
+        Description: Type of analysis to perform (overview, code-review, issue-audit)
+        Default: 'overview'
+
+    Steps:
+      - Name: Get Repository Info
+        Agent: GitHub Analyst
+        Prompt: |
+          Get information about the repository ${inputs.repository_owner}/${inputs.repository_name}.
+
+          Use the GitHub MCP tools to:
+          1. Get repository details and metadata
+          2. List recent issues (open and closed)
+          3. Get an overview of the repository structure
+
+          Provide a summary of the repository including:
+          - Basic repository information (description, language, stars, etc.)
+          - Current state (number of open issues, recent activity)
+          - Repository structure overview
+        Store: repo_info
+
+      - Name: Analyze Codebase
+        Agent: Code Reviewer
+        Condition: inputs.analysis_type == "overview" || inputs.analysis_type == "code-review"
+        Prompt: |
+          Analyze the codebase structure of ${inputs.repository_owner}/${inputs.repository_name}.
+
+          Use GitHub MCP tools to:
+          1. Search for key files (README, main source files, configuration files)
+          2. Get contents of important files to understand the project structure
+          3. Look for code organization patterns
+
+          Based on repository info:
+          ${repo_info}
+
+          Provide an analysis covering:
+          - Project architecture and organization
+          - Key technologies and dependencies used
+          - Code quality observations
+          - Potential areas for improvement
+        Store: code_analysis
+
+      - Name: Issue Analysis
+        Agent: GitHub Analyst
+        Condition: inputs.analysis_type == "overview" || inputs.analysis_type == "issue-audit"
+        Prompt: |
+          Analyze the current issues in ${inputs.repository_owner}/${inputs.repository_name}.
+
+          Use GitHub MCP tools to:
+          1. List all open issues
+          2. Categorize issues by type (bug, feature, documentation, etc.)
+          3. Identify high-priority or long-standing issues
+
+          Provide an analysis including:
+          - Issue categorization and priorities
+          - Trends in issue types
+          - Recommendations for issue management
+          - Suggestions for new issues if any gaps are identified
+        Store: issue_analysis
+
+      - Name: Generate Recommendations
+        Agent: GitHub Analyst
+        Prompt: |
+          Based on the analysis of ${inputs.repository_owner}/${inputs.repository_name}, generate
+          actionable recommendations.
+
+          Repository Information:
+          ${repo_info}
+
+          Code Analysis:
+          ${code_analysis}
+
+          Issue Analysis:
+          ${issue_analysis}
+
+          Provide comprehensive recommendations covering:
+          - Repository management improvements
+          - Code organization suggestions
+          - Issue management strategy
+          - Development workflow enhancements
+
+          Format as a detailed markdown report.
+        Store: recommendations
+
+      - Name: Create Summary Report
+        Agent: GitHub Analyst
+        Prompt: |
+          Create a comprehensive summary report for the ${inputs.repository_owner}/${inputs.repository_name} repository analysis.
+
+          Combine all the analysis components into a well-structured report:
+
+          Repository Overview:
+          ${repo_info}
+
+          Code Analysis:
+          ${code_analysis}
+
+          Issue Analysis:
+          ${issue_analysis}
+
+          Recommendations:
+          ${recommendations}
+
+          Create a professional markdown report with:
+          - Executive summary
+          - Detailed findings by category
+          - Actionable recommendations
+          - Next steps
+        Store: final_report
+
+      - Name: Save Report
+        Action: Document.Write
+        Parameters:
+          Path: 'output/github_analysis_${inputs.repository_owner}_${inputs.repository_name}.md'
+          Content: ${final_report}
+
+  - Name: Create Issue Workflow
+    Description: Create a new GitHub issue with proper formatting and labels
+    Inputs:
+      - Name: repository_owner
+        Type: string
+        Description: The GitHub repository owner/organization
+        Default: 'diveagents'
+      - Name: repository_name
+        Type: string
+        Description: The GitHub repository name
+        Default: 'dive'
+      - Name: issue_title
+        Type: string
+        Description: Title for the new issue
+        Default: 'Improve documentation'
+      - Name: issue_description
+        Type: string
+        Description: Description of the issue
+        Default: 'The project documentation needs to be updated with better examples'
+      - Name: issue_type
+        Type: string
+        Description: Type of issue (bug, feature, documentation, enhancement)
+        Default: 'documentation'
+
+    Steps:
+      - Name: Research Context
+        Agent: GitHub Analyst
+        Prompt: |
+          Before creating a new issue titled "${inputs.issue_title}" in ${inputs.repository_owner}/${inputs.repository_name},
+          research the context to ensure it's appropriate and well-formed.
+
+          Use GitHub MCP tools to:
+          1. Check if similar issues already exist
+          2. Get repository information to understand the project
+          3. Look at recent issues to understand the formatting and style used
+
+          Based on your research, determine:
+          - Whether this issue is appropriate for this repository
+          - If similar issues already exist
+          - What additional context or details should be included
+        Store: issue_context
+
+      - Name: Create Detailed Issue
+        Agent: GitHub Analyst
+        Prompt: |
+          Create a well-formatted GitHub issue for ${inputs.repository_owner}/${inputs.repository_name}.
+
+          Context from research:
+          ${issue_context}
+
+          Issue details:
+          - Title: ${inputs.issue_title}
+          - Description: ${inputs.issue_description}
+          - Type: ${inputs.issue_type}
+
+          Use GitHub MCP tools to create the issue with:
+          - Clear, descriptive title
+          - Well-formatted description with proper markdown
+          - Appropriate labels if supported
+          - Steps to reproduce (if it's a bug)
+          - Acceptance criteria (if it's a feature)
+
+          After creating the issue, provide the issue number and URL.
+        Store: created_issue
+
+      - Name: Issue Summary
+        Agent: GitHub Analyst
+        Prompt: |
+          Provide a summary of the created issue:
+
+          ${created_issue}
+
+          Include:
+          - Issue details (number, title, URL)
+          - Summary of what was created
+          - Any follow-up actions recommended
+        Store: issue_summary
+
+      - Name: Save Issue Log
+        Action: Document.Write
+        Parameters:
+          Path: 'output/created_issue_${inputs.repository_owner}_${inputs.repository_name}.md'
+          Content: |
+            # GitHub Issue Created
+
+            **Repository**: ${inputs.repository_owner}/${inputs.repository_name}
+            **Date**: $(date)
+            **Type**: ${inputs.issue_type}
+
+            ## Issue Summary
+            ${issue_summary}
+
+            ## Research Context
+            ${issue_context}

@@ -1,0 +1,231 @@
+Name: Simple MCP Demo
+Description: A basic demonstration of MCP integration in Dive workflows
+
+Config:
+  DefaultProvider: anthropic
+  LogLevel: debug
+  ConfirmationMode: if-destructive
+  Providers:
+    - Name: anthropic
+      MCPServers:
+        - Type: stdio
+          Name: git-server
+          URL: 'uvx'
+          Env:
+            DEBUG: 'true'
+            GIT_CONFIG_GLOBAL: '/tmp/gitconfig'
+          Args:
+            - 'mcp-server-git'
+            - '--verbose'
+          ToolConfiguration:
+            Enabled: true
+        # - Type: stdio
+        #   Name: filesystem-server
+        #   URL: 'python'
+        #   Env:
+        #     PYTHONPATH: '/usr/local/lib/python3.9/site-packages'
+        #     MCP_LOG_LEVEL: 'debug'
+        #   Args:
+        #     - '-m'
+        #     - 'mcp_server_filesystem'
+        #     - '--root-dir'
+        #     - '.'
+        #   ToolConfiguration:
+        #     Enabled: true
+        #     AllowedTools:
+        #       - 'read_file'
+        #       - 'list_directory'
+
+Tools:
+  - Name: Web.Search
+  - Name: git_status
+  - Name: git_diff
+  - Name: git_show
+  # - Name: git_log
+
+Agents:
+  - Name: MCP Explorer
+    Goal: Demonstrate MCP tool usage
+    Instructions: |
+      You are an AI assistant that demonstrates how to use MCP (Model Context Protocol) tools
+      within Dive workflows. You have access to various MCP tools that allow you to interact
+      with external systems and services.
+
+      When using MCP tools:
+      1. Explain what tool you're using and why
+      2. Show the input parameters clearly
+      3. Interpret and summarize the results
+      4. Suggest follow-up actions if appropriate
+
+    Tools:
+      - Web.Search
+      # - Git.ListRepos  # Temporarily commenting out until we discover the correct tool name
+
+Workflows:
+  - Name: MCP Tool Discovery
+    Description: Discover and test available MCP tools
+    Inputs:
+      - Name: test_type
+        Type: string
+        Description: Type of MCP test to run (discovery, filesystem, web-service)
+        Default: 'discovery'
+
+    Steps:
+      - Name: Discover MCP Tools
+        Agent: MCP Explorer
+        Prompt: |
+          Hello! I'm going to help you explore MCP (Model Context Protocol) tools that are 
+          available in this Dive environment.
+
+          Test type: ${inputs.test_type}
+
+          First, let me discover what MCP tools are available by using any MCP tools that
+          might be connected. If you have MCP servers configured, I should have access to
+          their tools automatically.
+
+          Please:
+          1. List any MCP tools that are available to me
+          2. Try calling a simple MCP tool to test the connection
+          3. Explain what each tool does
+          4. Show an example of how to use the tools
+
+          If no MCP tools are available, explain what would be needed to set them up.
+        Store: tool_discovery
+
+  #     - Name: Test File Operations
+  #       Agent: MCP Explorer
+  #       Condition: inputs.test_type == "filesystem" || inputs.test_type == "discovery"
+  #       Prompt: |
+  #         Based on the tool discovery results:
+  #         ${tool_discovery}
+
+  #         If filesystem MCP tools are available (like read_file, list_directory), let's test them:
+
+  #         1. Try to list the current directory or a common directory
+  #         2. Try to read a file (like README.md or package.json)
+  #         3. Show how file operations work through MCP
+
+  #         If filesystem tools aren't available, explain how they would work and what
+  #         the typical workflow would be.
+  #       Store: filesystem_test
+
+  #     - Name: Test Web Service
+  #       Agent: MCP Explorer
+  #       Condition: inputs.test_type == "web-service" || inputs.test_type == "discovery"
+  #       Prompt: |
+  #         Discovery results: ${tool_discovery}
+  #         Filesystem test: ${filesystem_test}
+
+  #         If web service MCP tools are available, let's test them:
+
+  #         1. Try calling any HTTP/API-based MCP tools
+  #         2. Show how external service integration works
+  #         3. Demonstrate data retrieval and processing
+
+  #         If web service tools aren't available but Web.Search is available,
+  #         use that as an example and explain how MCP tools would extend
+  #         this capability.
+  #       Store: webservice_test
+
+  #     - Name: Create Usage Guide
+  #       Agent: MCP Explorer
+  #       Prompt: |
+  #         Based on all the testing done:
+
+  #         Tool Discovery:
+  #         ${tool_discovery}
+
+  #         Filesystem Testing:
+  #         ${filesystem_test}
+
+  #         Web Service Testing:
+  #         ${webservice_test}
+
+  #         Create a comprehensive guide that explains:
+
+  #         1. **What MCP is**: Brief explanation of Model Context Protocol
+  #         2. **Available Tools**: What MCP tools were discovered and tested
+  #         3. **How to Use**: Step-by-step examples of using MCP tools
+  #         4. **Configuration**: How MCP servers are configured in Dive
+  #         5. **Troubleshooting**: Common issues and solutions
+  #         6. **Next Steps**: How to add more MCP servers and tools
+
+  #         Format this as a detailed markdown guide that would help someone
+  #         understand and use MCP tools in their own Dive workflows.
+  #       Store: usage_guide
+
+  #     - Name: Save Guide
+  #       Action: Document.Write
+  #       Parameters:
+  #         Path: 'output/mcp_usage_guide.md'
+  #         Content: ${usage_guide}
+
+  # - Name: MCP Configuration Demo
+  #   Description: Show how to configure and use different types of MCP servers
+
+  #   Steps:
+  #     - Name: Explain MCP Configuration
+  #       Agent: MCP Explorer
+  #       Prompt: |
+  #         I'll explain how to configure MCP servers in Dive workflows and show
+  #         practical examples.
+
+  #         Let me break down the MCP configuration patterns:
+
+  #         1. **HTTP MCP Servers**: For web-based services
+  #         2. **Stdio MCP Servers**: For local processes and scripts
+  #         3. **Authentication**: How to handle API tokens and credentials
+  #         4. **Tool Filtering**: How to restrict which tools are available
+  #         5. **Error Handling**: What happens when MCP servers are unavailable
+
+  #         I'll provide concrete examples and configuration snippets for each type.
+  #       Store: config_explanation
+
+  #     - Name: Show Real Examples
+  #       Agent: MCP Explorer
+  #       Prompt: |
+  #         Configuration explanation: ${config_explanation}
+
+  #         Now let me provide real, practical examples of MCP server configurations
+  #         that you can use in your own projects:
+
+  #         1. **GitHub Integration**: Configure GitHub MCP server for repository management
+  #         2. **Slack Integration**: Set up Slack MCP for team communication
+  #         3. **Database Access**: Configure database MCP tools
+  #         4. **File System**: Local file system access through MCP
+  #         5. **Custom Services**: How to create your own MCP server
+
+  #         For each example, I'll show:
+  #         - YAML configuration
+  #         - Required environment variables
+  #         - Example usage in workflow steps
+  #         - Expected outputs
+  #       Store: practical_examples
+
+  #     - Name: Create Configuration Reference
+  #       Agent: MCP Explorer
+  #       Prompt: |
+  #         Combine the configuration explanation and practical examples:
+
+  #         ${config_explanation}
+
+  #         ${practical_examples}
+
+  #         Create a comprehensive MCP configuration reference guide that includes:
+
+  #         1. **Quick Start**: Minimal working example
+  #         2. **Configuration Reference**: All available options explained
+  #         3. **Common Patterns**: Typical use cases and configurations
+  #         4. **Security Best Practices**: How to handle credentials safely
+  #         5. **Testing and Debugging**: How to verify MCP setup works
+  #         6. **Performance Tips**: Optimizing MCP tool usage
+
+  #         Make this a practical reference that someone can use to quickly
+  #         set up MCP in their own Dive environment.
+  #       Store: config_reference
+
+  #     - Name: Save Configuration Reference
+  #       Action: Document.Write
+  #       Parameters:
+  #         Path: 'output/mcp_configuration_reference.md'
+  #         Content: ${config_reference}

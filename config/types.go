@@ -11,6 +11,8 @@ type MCPServer struct {
 	Type               string                `yaml:"Type" json:"Type"`
 	Name               string                `yaml:"Name" json:"Name"`
 	URL                string                `yaml:"URL,omitempty" json:"URL,omitempty"`
+	Env                map[string]string     `yaml:"Env,omitempty" json:"Env,omitempty"`
+	Args               []string              `yaml:"Args,omitempty" json:"Args,omitempty"`
 	AuthorizationToken string                `yaml:"AuthorizationToken,omitempty" json:"AuthorizationToken,omitempty"`
 	ToolConfiguration  *MCPToolConfiguration `yaml:"ToolConfiguration,omitempty" json:"ToolConfiguration,omitempty"`
 }
@@ -26,6 +28,20 @@ func (s MCPServer) GetName() string {
 
 func (s MCPServer) GetURL() string {
 	return s.URL
+}
+
+func (s MCPServer) GetEnv() map[string]string {
+	if s.Env == nil {
+		return make(map[string]string)
+	}
+	return s.Env
+}
+
+func (s MCPServer) GetArgs() []string {
+	if s.Args == nil {
+		return []string{}
+	}
+	return s.Args
 }
 
 func (s MCPServer) GetAuthorizationToken() string {

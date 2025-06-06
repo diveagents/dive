@@ -14,6 +14,8 @@ type ServerConfig interface {
 	GetType() string
 	GetName() string
 	GetURL() string
+	GetEnv() map[string]string
+	GetArgs() []string
 	GetAuthorizationToken() string
 	IsToolEnabled() bool
 	GetAllowedTools() []string
@@ -44,7 +46,17 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 		c.client, err = client.NewStreamableHttpClient(c.config.GetURL())
 	case "stdio":
 		// For stdio, URL contains the command to execute
-		c.client, err = client.NewStdioMCPClient(c.config.GetURL(), nil)
+		// Get environment variables and arguments from config
+		envMap := c.config.GetEnv()
+		args := c.config.GetArgs()
+
+		// Convert environment map to slice of "KEY=VALUE" strings
+		env := make([]string, 0, len(envMap))
+		for key, value := range envMap {
+			env = append(env, fmt.Sprintf("%s=%s", key, value))
+		}
+
+		c.client, err = client.NewStdioMCPClient(c.config.GetURL(), env, args...)
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s", c.config.GetType())
 	}

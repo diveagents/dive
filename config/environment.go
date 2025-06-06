@@ -12,6 +12,7 @@ import (
 	"github.com/diveagents/dive"
 	"github.com/diveagents/dive/agent"
 	"github.com/diveagents/dive/environment"
+	"github.com/diveagents/dive/mcp"
 	"github.com/diveagents/dive/slogger"
 	"github.com/diveagents/dive/workflow"
 	"github.com/goccy/go-yaml"
@@ -104,6 +105,37 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		Mode: confirmationMode,
 	})
 
+	// Collect MCP servers from all providers
+	var mcpServers []environment.MCPServerConfig
+	for _, provider := range env.Config.Providers {
+		for _, mcpServer := range provider.MCPServers {
+			mcpServers = append(mcpServers, mcpServer)
+		}
+	}
+
+	// Initialize MCP manager and servers early to discover tools
+	mcpManager := mcp.NewMCPManager()
+	var mcpTools map[string]dive.Tool
+	if len(mcpServers) > 0 {
+		// Convert MCPServerConfig to mcp.ServerConfig interface
+		serverConfigs := make([]mcp.ServerConfig, len(mcpServers))
+		for i, cfg := range mcpServers {
+			serverConfigs[i] = cfg
+		}
+
+		// Initialize MCP servers to discover tools
+		ctx := context.Background()
+		if err := mcpManager.InitializeServers(ctx, serverConfigs); err != nil {
+			logger.Error("failed to initialize MCP servers during build", "error", err)
+			// Continue with build but without MCP tools
+			mcpTools = make(map[string]dive.Tool)
+		} else {
+			mcpTools = mcpManager.GetAllTools()
+		}
+	} else {
+		mcpTools = make(map[string]dive.Tool)
+	}
+
 	toolDefsByName := make(map[string]Tool)
 	for _, toolDef := range env.Tools {
 		toolDefsByName[toolDef.Name] = toolDef
@@ -118,15 +150,21 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 			}
 		}
 	}
+
 	toolDefs := make([]Tool, 0, len(toolDefsByName))
 	for _, toolDef := range toolDefsByName {
 		toolDefs = append(toolDefs, toolDef)
 	}
 
-	// Tools
+	// Tools - initialize regular tools first
 	toolsMap, err := initializeTools(toolDefs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize tools: %w", err)
+	}
+
+	// Add MCP tools to the tools map
+	for toolName, mcpTool := range mcpTools {
+		toolsMap[toolName] = mcpTool
 	}
 
 	// Agents
@@ -198,14 +236,6 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		threadRepo = agent.NewMemoryThreadRepository()
 	}
 
-	// Collect MCP servers from all providers
-	var mcpServers []environment.MCPServerConfig
-	for _, provider := range env.Config.Providers {
-		for _, mcpServer := range provider.MCPServers {
-			mcpServers = append(mcpServers, mcpServer)
-		}
-	}
-
 	// Environment
 	result, err := environment.New(environment.Options{
 		Name:               env.Name,
@@ -218,6 +248,7 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		ThreadRepository:   threadRepo,
 		Confirmer:          confirmer,
 		MCPServers:         mcpServers,
+		MCPManager:         mcpManager,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create environment: %w", err)

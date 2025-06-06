@@ -16,6 +16,8 @@ type toolAdapterTestServerConfig struct {
 	serverType         string
 	name               string
 	url                string
+	env                map[string]string
+	args               []string
 	authorizationToken string
 	toolEnabled        bool
 	allowedTools       []string
@@ -31,6 +33,20 @@ func (c toolAdapterTestServerConfig) GetName() string {
 
 func (c toolAdapterTestServerConfig) GetURL() string {
 	return c.url
+}
+
+func (c toolAdapterTestServerConfig) GetEnv() map[string]string {
+	if c.env == nil {
+		return make(map[string]string)
+	}
+	return c.env
+}
+
+func (c toolAdapterTestServerConfig) GetArgs() []string {
+	if c.args == nil {
+		return []string{}
+	}
+	return c.args
 }
 
 func (c toolAdapterTestServerConfig) GetAuthorizationToken() string {

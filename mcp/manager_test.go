@@ -14,6 +14,8 @@ type testServerConfig struct {
 	serverType         string
 	name               string
 	url                string
+	env                map[string]string
+	args               []string
 	authorizationToken string
 	toolEnabled        bool
 	allowedTools       []string
@@ -29,6 +31,20 @@ func (t testServerConfig) GetName() string {
 
 func (t testServerConfig) GetURL() string {
 	return t.url
+}
+
+func (t testServerConfig) GetEnv() map[string]string {
+	if t.env == nil {
+		return make(map[string]string)
+	}
+	return t.env
+}
+
+func (t testServerConfig) GetArgs() []string {
+	if t.args == nil {
+		return []string{}
+	}
+	return t.args
 }
 
 func (t testServerConfig) GetAuthorizationToken() string {
