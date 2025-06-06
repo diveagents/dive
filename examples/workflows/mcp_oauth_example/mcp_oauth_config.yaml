@@ -1,0 +1,143 @@
+Name: MCP OAuth Example
+Description: Comprehensive example showing OAuth 2.0 configuration for MCP servers
+
+Config:
+  DefaultProvider: anthropic
+  DefaultModel: claude-3-5-sonnet-20241022
+  LogLevel: info
+  ConfirmationMode: if-destructive
+
+  Providers:
+    - Name: anthropic
+      MCPServers:
+        # GitHub MCP server with OAuth 2.0 configuration
+        - Type: http
+          Name: github-server
+          URL: 'https://api.github.com/mcp'
+          OAuth:
+            ClientID: '${GITHUB_OAUTH_CLIENT_ID}'
+            ClientSecret: '${GITHUB_OAUTH_CLIENT_SECRET}'
+            RedirectURI: 'http://localhost:8085/oauth/callback'
+            Scopes:
+              - 'repo'
+              - 'read:user'
+              - 'write:repo_hook'
+            PKCEEnabled: true
+            TokenStore:
+              Type: file
+              Path: '~/.dive/tokens/github-tokens.json'
+            ExtraParams:
+              prompt: 'consent'
+          ToolConfiguration:
+            Enabled: true
+            AllowedTools:
+              - 'list_repositories'
+              - 'get_repository'
+              - 'list_issues'
+              - 'create_issue'
+              - 'get_file_contents'
+              - 'search_code'
+
+        # Linear MCP server with OAuth (public client using PKCE)
+        - Type: http
+          Name: linear-server
+          URL: 'https://mcp.linear.app/sse'
+          OAuth:
+            ClientID: '${LINEAR_OAUTH_CLIENT_ID}'
+            # No ClientSecret for public clients
+            RedirectURI: 'http://localhost:8085/oauth/callback'
+            Scopes:
+              - 'read'
+              - 'write'
+            PKCEEnabled: true # Essential for public clients
+            TokenStore:
+              Type: file
+              Path: '~/.dive/tokens/linear-tokens.json'
+          ToolConfiguration:
+            Enabled: true
+            AllowedTools:
+              - 'searchIssues'
+              - 'createIssue'
+              - 'updateIssue'
+              - 'getTeams'
+
+        # Slack MCP server with OAuth (in-memory tokens for testing)
+        - Type: http
+          Name: slack-server
+          URL: 'https://api.slack.com/mcp'
+          OAuth:
+            ClientID: '${SLACK_OAUTH_CLIENT_ID}'
+            ClientSecret: '${SLACK_OAUTH_CLIENT_SECRET}'
+            RedirectURI: 'http://localhost:8085/oauth/callback'
+            Scopes:
+              - 'channels:read'
+              - 'chat:write'
+              - 'users:read'
+            PKCEEnabled: false # Slack doesn't require PKCE for confidential clients
+            TokenStore:
+              Type: memory # Tokens stored in memory only
+          ToolConfiguration:
+            Enabled: true
+            AllowedTools:
+              - 'send_message'
+              - 'list_channels'
+              - 'get_channel_history'
+
+        # Example of mixed authentication - both OAuth and fallback token
+        - Type: http
+          Name: hybrid-server
+          URL: 'https://api.example.com/mcp'
+          # Primary: OAuth configuration
+          OAuth:
+            ClientID: '${EXAMPLE_OAUTH_CLIENT_ID}'
+            ClientSecret: '${EXAMPLE_OAUTH_CLIENT_SECRET}'
+            RedirectURI: 'http://localhost:8085/oauth/callback'
+            Scopes:
+              - 'mcp.read'
+              - 'mcp.write'
+            PKCEEnabled: true
+            TokenStore:
+              Type: file
+              Path: '~/.dive/tokens/example-tokens.json'
+          # Fallback: Bearer token authentication
+          AuthorizationToken: '${EXAMPLE_BEARER_TOKEN}'
+          ToolConfiguration:
+            Enabled: true
+
+Tools:
+  - Name: Web.Search
+    Enabled: true
+  - Name: Web.Fetch
+    Enabled: true
+
+Agents:
+  - Name: OAuth Integration Specialist
+    Goal: Demonstrate OAuth-enabled MCP server integrations
+    Instructions: |
+      You are an OAuth integration specialist with access to multiple MCP servers 
+      that use OAuth 2.0 authentication. You can:
+
+      1. **GitHub Integration**: Access repositories, issues, and code using OAuth
+      2. **Linear Integration**: Manage issues and projects with OAuth authentication  
+      3. **Slack Integration**: Send messages and access channels via OAuth
+      4. **Hybrid Integration**: Use OAuth with fallback to bearer tokens
+
+      Always respect user privacy and only access resources you have permission for.
+      If OAuth authentication fails, inform the user and suggest re-authentication.
+
+Workflows:
+  - Name: oauth_demonstration
+    Description: Demonstrate OAuth flow and MCP server interactions
+    Steps:
+      - Type: agent
+        Name: oauth_demo_step
+        Agent: OAuth Integration Specialist
+        Prompt: |
+          Please demonstrate the OAuth-enabled MCP integrations by:
+
+          1. Listing available GitHub repositories (if authenticated)
+          2. Searching for Linear issues (if authenticated)  
+          3. Checking Slack channel access (if authenticated)
+          4. Showing the status of all OAuth tokens
+
+          If any OAuth authentication is required, guide the user through the process.

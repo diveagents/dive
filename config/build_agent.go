@@ -25,11 +25,39 @@ func convertMCPServer(mcpServer MCPServer) llm.MCPServerConfig {
 			AllowedTools: mcpServer.ToolConfiguration.AllowedTools,
 		}
 	}
+
+	var oauthConfig *llm.MCPOAuthConfig
+	if mcpServer.OAuth != nil {
+		pkceEnabled := true
+		if mcpServer.OAuth.PKCEEnabled != nil {
+			pkceEnabled = *mcpServer.OAuth.PKCEEnabled
+		}
+
+		var tokenStore *llm.MCPTokenStore
+		if mcpServer.OAuth.TokenStore != nil {
+			tokenStore = &llm.MCPTokenStore{
+				Type: mcpServer.OAuth.TokenStore.Type,
+				Path: mcpServer.OAuth.TokenStore.Path,
+			}
+		}
+
+		oauthConfig = &llm.MCPOAuthConfig{
+			ClientID:     mcpServer.OAuth.ClientID,
+			ClientSecret: mcpServer.OAuth.ClientSecret,
+			RedirectURI:  mcpServer.OAuth.RedirectURI,
+			Scopes:       mcpServer.OAuth.Scopes,
+			PKCEEnabled:  pkceEnabled,
+			TokenStore:   tokenStore,
+			ExtraParams:  mcpServer.OAuth.ExtraParams,
+		}
+	}
+
 	return llm.MCPServerConfig{
 		Type:               mcpServer.Type,
 		URL:                mcpServer.URL,
 		Name:               mcpServer.Name,
 		AuthorizationToken: mcpServer.AuthorizationToken,
+		OAuth:              oauthConfig,
 		ToolConfiguration:  toolConfiguration,
 	}
 }

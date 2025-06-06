@@ -19,6 +19,8 @@ type testServerConfig struct {
 	authorizationToken string
 	toolEnabled        bool
 	allowedTools       []string
+	oauthEnabled       bool
+	oauthConfig        interface{}
 }
 
 func (t testServerConfig) GetType() string {
@@ -57,6 +59,15 @@ func (t testServerConfig) IsToolEnabled() bool {
 
 func (t testServerConfig) GetAllowedTools() []string {
 	return t.allowedTools
+}
+
+// OAuth interface methods
+func (t testServerConfig) IsOAuthEnabled() bool {
+	return t.oauthEnabled
+}
+
+func (t testServerConfig) GetOAuthConfig() interface{} {
+	return t.oauthConfig
 }
 
 func TestNewMCPManager(t *testing.T) {

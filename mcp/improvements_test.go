@@ -18,6 +18,8 @@ type MockServerConfig struct {
 	authToken    string
 	toolEnabled  bool
 	allowedTools []string
+	oauthEnabled bool
+	oauthConfig  interface{}
 }
 
 func (m *MockServerConfig) GetType() string               { return m.serverType }
@@ -28,6 +30,10 @@ func (m *MockServerConfig) GetArgs() []string             { return m.args }
 func (m *MockServerConfig) GetAuthorizationToken() string { return m.authToken }
 func (m *MockServerConfig) IsToolEnabled() bool           { return m.toolEnabled }
 func (m *MockServerConfig) GetAllowedTools() []string     { return m.allowedTools }
+
+// OAuth interface methods
+func (m *MockServerConfig) IsOAuthEnabled() bool        { return m.oauthEnabled }
+func (m *MockServerConfig) GetOAuthConfig() interface{} { return m.oauthConfig }
 
 func TestMCPErrorTypes(t *testing.T) {
 	// Test custom error types

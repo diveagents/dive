@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/diveagents/dive"
 	"github.com/diveagents/dive/mcp"
@@ -29,9 +30,13 @@ func (c *ExampleServerConfig) GetArgs() []string             { return c.args }
 func (c *ExampleServerConfig) GetAuthorizationToken() string { return c.authToken }
 func (c *ExampleServerConfig) IsToolEnabled() bool           { return c.toolEnabled }
 func (c *ExampleServerConfig) GetAllowedTools() []string     { return c.allowedTools }
+func (c *ExampleServerConfig) IsOAuthEnabled() bool          { return false }
+func (c *ExampleServerConfig) GetOAuthConfig() interface{}   { return nil }
 
 func main() {
-	ctx := context.Background()
+	// Create a context with timeout to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
 	// Create server configurations
 	configs := []mcp.ServerConfig{
@@ -45,8 +50,8 @@ func main() {
 		&ExampleServerConfig{
 			serverType:   "stdio",
 			name:         "git-server",
-			url:          "npx",
-			args:         []string{"-y", "@modelcontextprotocol/server-git", "--repository", "."},
+			url:          "uvx",
+			args:         []string{"mcp-server-git"},
 			toolEnabled:  true,
 			allowedTools: []string{"git_log", "git_diff"}, // Only allow specific tools
 		},
@@ -56,9 +61,24 @@ func main() {
 	manager := mcp.NewMCPManager()
 
 	fmt.Println("🚀 Initializing MCP servers...")
+	fmt.Println("⏰ Timeout set to 2 minutes to prevent hanging...")
+
 	err := manager.InitializeServers(ctx, configs)
 	if err != nil {
 		log.Printf("Warning: Some servers failed to initialize: %v\n", err)
+
+		// Show which servers are connected
+		fmt.Println("\n📊 Server Connection Status:")
+		serverStatus := manager.GetServerStatus()
+		for serverName, isConnected := range serverStatus {
+			status := "❌ Failed to connect"
+			if isConnected {
+				status = "✅ Connected successfully"
+			}
+			fmt.Printf("  %s: %s\n", serverName, status)
+		}
+	} else {
+		fmt.Println("✅ All servers initialized successfully!")
 	}
 
 	// Demonstrate enhanced capabilities

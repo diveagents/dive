@@ -5,6 +5,23 @@ type MCPToolConfiguration struct {
 	AllowedTools []string `json:"allowed_tools,omitempty"`
 }
 
+// MCPOAuthConfig represents OAuth 2.0 configuration for MCP servers
+type MCPOAuthConfig struct {
+	ClientID     string            `json:"client_id"`
+	ClientSecret string            `json:"client_secret,omitempty"`
+	RedirectURI  string            `json:"redirect_uri"`
+	Scopes       []string          `json:"scopes,omitempty"`
+	PKCEEnabled  bool              `json:"pkce_enabled,omitempty"`
+	TokenStore   *MCPTokenStore    `json:"token_store,omitempty"`
+	ExtraParams  map[string]string `json:"extra_params,omitempty"`
+}
+
+// MCPTokenStore represents token storage configuration
+type MCPTokenStore struct {
+	Type string `json:"type"`           // "memory", "file", "keychain"
+	Path string `json:"path,omitempty"` // For file storage
+}
+
 // MCPApprovalRequirement represents the approval requirements for MCP tools
 // type MCPApprovalRequirement struct {
 // 	Never *MCPNeverApproval `json:"never,omitempty"`
@@ -25,6 +42,7 @@ type MCPServerConfig struct {
 	URL                string                 `json:"url"`
 	Name               string                 `json:"name,omitempty"`
 	AuthorizationToken string                 `json:"authorization_token,omitempty"`
+	OAuth              *MCPOAuthConfig        `json:"oauth,omitempty"`
 	ToolConfiguration  *MCPToolConfiguration  `json:"tool_configuration,omitempty"`
 	Headers            map[string]string      `json:"headers,omitempty"`
 	ToolApproval       string                 `json:"tool_approval,omitempty"`

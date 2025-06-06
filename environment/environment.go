@@ -23,6 +23,8 @@ type MCPServerConfig = interface {
 	GetAuthorizationToken() string
 	IsToolEnabled() bool
 	GetAllowedTools() []string
+	IsOAuthEnabled() bool
+	GetOAuthConfig() interface{}
 }
 
 // Environment is a container for running agents and workflow executions

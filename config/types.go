@@ -7,6 +7,23 @@ type MCPToolConfiguration struct {
 	AllowedTools []string `yaml:"AllowedTools" json:"AllowedTools"`
 }
 
+// MCPOAuthConfig represents OAuth 2.0 configuration for MCP servers
+type MCPOAuthConfig struct {
+	ClientID     string            `yaml:"ClientID" json:"ClientID"`
+	ClientSecret string            `yaml:"ClientSecret,omitempty" json:"ClientSecret,omitempty"`
+	RedirectURI  string            `yaml:"RedirectURI" json:"RedirectURI"`
+	Scopes       []string          `yaml:"Scopes,omitempty" json:"Scopes,omitempty"`
+	PKCEEnabled  *bool             `yaml:"PKCEEnabled,omitempty" json:"PKCEEnabled,omitempty"`
+	TokenStore   *MCPTokenStore    `yaml:"TokenStore,omitempty" json:"TokenStore,omitempty"`
+	ExtraParams  map[string]string `yaml:"ExtraParams,omitempty" json:"ExtraParams,omitempty"`
+}
+
+// MCPTokenStore represents token storage configuration
+type MCPTokenStore struct {
+	Type string `yaml:"Type" json:"Type"`                     // "memory", "file", "keychain"
+	Path string `yaml:"Path,omitempty" json:"Path,omitempty"` // For file storage
+}
+
 type MCPServer struct {
 	Type               string                `yaml:"Type" json:"Type"`
 	Name               string                `yaml:"Name" json:"Name"`
@@ -14,6 +31,7 @@ type MCPServer struct {
 	Env                map[string]string     `yaml:"Env,omitempty" json:"Env,omitempty"`
 	Args               []string              `yaml:"Args,omitempty" json:"Args,omitempty"`
 	AuthorizationToken string                `yaml:"AuthorizationToken,omitempty" json:"AuthorizationToken,omitempty"`
+	OAuth              *MCPOAuthConfig       `yaml:"OAuth,omitempty" json:"OAuth,omitempty"`
 	ToolConfiguration  *MCPToolConfiguration `yaml:"ToolConfiguration,omitempty" json:"ToolConfiguration,omitempty"`
 }
 
@@ -46,6 +64,16 @@ func (s MCPServer) GetArgs() []string {
 
 func (s MCPServer) GetAuthorizationToken() string {
 	return s.AuthorizationToken
+}
+
+// GetOAuthConfig returns OAuth configuration if present
+func (s MCPServer) GetOAuthConfig() interface{} {
+	return s.OAuth
+}
+
+// IsOAuthEnabled returns true if OAuth is configured
+func (s MCPServer) IsOAuthEnabled() bool {
+	return s.OAuth != nil && s.OAuth.ClientID != ""
 }
 
 func (s MCPServer) IsToolEnabled() bool {

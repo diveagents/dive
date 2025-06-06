@@ -21,6 +21,8 @@ type toolAdapterTestServerConfig struct {
 	authorizationToken string
 	toolEnabled        bool
 	allowedTools       []string
+	oauthEnabled       bool
+	oauthConfig        interface{}
 }
 
 func (c toolAdapterTestServerConfig) GetType() string {
@@ -59,6 +61,15 @@ func (c toolAdapterTestServerConfig) IsToolEnabled() bool {
 
 func (c toolAdapterTestServerConfig) GetAllowedTools() []string {
 	return c.allowedTools
+}
+
+// OAuth interface methods
+func (c toolAdapterTestServerConfig) IsOAuthEnabled() bool {
+	return c.oauthEnabled
+}
+
+func (c toolAdapterTestServerConfig) GetOAuthConfig() interface{} {
+	return c.oauthConfig
 }
 
 // boolPtr returns a pointer to the given bool value
