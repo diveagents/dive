@@ -151,20 +151,29 @@ func (env *Environment) Build(opts ...BuildOption) (*environment.Environment, er
 		}
 	}
 
-	toolDefs := make([]Tool, 0, len(toolDefsByName))
+	// Filter out MCP tools from regular tool definitions - they should not be passed to initializeTools
+	regularToolDefs := make([]Tool, 0, len(toolDefsByName))
 	for _, toolDef := range toolDefsByName {
-		toolDefs = append(toolDefs, toolDef)
+		// Skip tools that are provided by MCP servers
+		if _, isMCPTool := mcpTools[toolDef.Name]; !isMCPTool {
+			regularToolDefs = append(regularToolDefs, toolDef)
+		}
 	}
 
-	// Tools - initialize regular tools first
-	toolsMap, err := initializeTools(toolDefs)
+	toolsMap := make(map[string]dive.Tool)
+
+	// Add MCP tools to the tools map first
+	for toolName, mcpTool := range mcpTools {
+		toolsMap[toolName] = mcpTool
+	}
+
+	// Tools - initialize regular tools only (excluding MCP tools)
+	regularTools, err := initializeTools(regularToolDefs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize tools: %w", err)
 	}
-
-	// Add MCP tools to the tools map
-	for toolName, mcpTool := range mcpTools {
-		toolsMap[toolName] = mcpTool
+	for toolName, tool := range regularTools {
+		toolsMap[toolName] = tool
 	}
 
 	// Agents

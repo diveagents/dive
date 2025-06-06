@@ -69,7 +69,8 @@ func buildAgent(
 	for _, toolName := range agentDef.Tools {
 		tool, ok := tools[toolName]
 		if !ok {
-			return nil, fmt.Errorf("tool %q not found or not enabled", toolName)
+			logger.Warn("tool not found during build; deferring validation until runtime", "tool", toolName)
+			continue
 		}
 		agentTools = append(agentTools, tool)
 	}

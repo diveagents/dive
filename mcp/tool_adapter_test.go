@@ -343,6 +343,66 @@ func TestMCPToolAdapter_Call_InvalidJSON(t *testing.T) {
 	require.Contains(t, result.Content[0].Text, "Failed to unmarshal input")
 }
 
+func TestMCPToolAdapter_Call_EmptyInputs(t *testing.T) {
+	client, err := NewMCPClient(toolAdapterTestServerConfig{
+		serverType:  "http",
+		name:        "test-server",
+		url:         "http://localhost:8080",
+		toolEnabled: true,
+	})
+	require.NoError(t, err)
+
+	mcpTool := mcp.Tool{
+		Name:        "test-tool",
+		Description: "A test tool",
+		InputSchema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]interface{}{},
+		},
+	}
+
+	adapter := NewMCPToolAdapter(client, mcpTool, "test-server")
+	ctx := context.Background()
+
+	// Test cases for empty inputs - they should all be handled properly
+	// and not cause unmarshaling errors
+	testCases := []struct {
+		name  string
+		input interface{}
+	}{
+		{
+			name:  "empty string",
+			input: "",
+		},
+		{
+			name:  "empty json raw message",
+			input: json.RawMessage(""),
+		},
+		{
+			name:  "json empty string",
+			input: json.RawMessage(`""`),
+		},
+		{
+			name:  "empty object",
+			input: map[string]interface{}{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := adapter.Call(ctx, tc.input)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			// Should fail because client is not connected, but the error should be
+			// about connection, not JSON unmarshaling
+			require.True(t, result.IsError)
+			require.Contains(t, result.Content[0].Text, "MCP tool call failed")
+			// Should NOT contain unmarshaling error
+			require.NotContains(t, result.Content[0].Text, "Failed to unmarshal")
+		})
+	}
+}
+
 func TestConvertMCPSchemaToDiv(t *testing.T) {
 	tests := []struct {
 		name      string

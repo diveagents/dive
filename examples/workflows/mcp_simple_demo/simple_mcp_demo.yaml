@@ -38,9 +38,9 @@ Config:
 
 Tools:
   - Name: Web.Search
-  - Name: git_status
-  - Name: git_diff
-  - Name: git_show
+  # - Name: git_status
+  # - Name: git_diff
+  # - Name: git_show
   # - Name: git_log
 
 Agents:
@@ -59,6 +59,8 @@ Agents:
 
     Tools:
       - Web.Search
+      - git-server.git_status
+      - git-server.git_diff
       # - Git.ListRepos  # Temporarily commenting out until we discover the correct tool name
 
 Workflows:

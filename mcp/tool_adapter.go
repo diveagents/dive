@@ -93,8 +93,23 @@ func (t *MCPToolAdapter) Call(ctx context.Context, input any) (*dive.ToolResult,
 	case map[string]interface{}:
 		arguments = v
 	case json.RawMessage:
-		if err := json.Unmarshal(v, &arguments); err != nil {
-			return dive.NewToolResultError(fmt.Sprintf("Failed to unmarshal input: %v", err)), nil
+		// Handle empty JSON input
+		if len(v) == 0 || string(v) == `""` {
+			arguments = make(map[string]interface{})
+		} else {
+			if err := json.Unmarshal(v, &arguments); err != nil {
+				return dive.NewToolResultError(fmt.Sprintf("Failed to unmarshal input: %v", err)), nil
+			}
+		}
+	case string:
+		// Handle empty string input
+		if v == "" {
+			arguments = make(map[string]interface{})
+		} else {
+			// Try to unmarshal as JSON
+			if err := json.Unmarshal([]byte(v), &arguments); err != nil {
+				return dive.NewToolResultError(fmt.Sprintf("Failed to unmarshal string input as JSON: %v", err)), nil
+			}
 		}
 	default:
 		// Marshal and unmarshal to convert to map[string]interface{}
