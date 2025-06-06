@@ -608,7 +608,7 @@ func TestConvertMCPResultToDive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := convertMCPResultToDive(tt.mcpResult)
+			result, err := ConvertMCPResultToDive(tt.mcpResult)
 			if tt.expectErr {
 				require.Error(t, err)
 				return
@@ -617,4 +617,193 @@ func TestConvertMCPResultToDive(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestConvertMCPResultToDive_ContentTypes(t *testing.T) {
+	tests := []struct {
+		name           string
+		mcpResult      *mcp.CallToolResult
+		expectedLength int
+		expectedType   dive.ToolResultContentType
+		expectedText   string
+		expectedData   string
+		expectedMime   string
+		hasAnnotations bool
+	}{
+		{
+			name: "TextContent",
+			mcpResult: &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Type: "text",
+						Text: "Hello world",
+						Annotated: mcp.Annotated{
+							Annotations: &mcp.Annotations{
+								Priority: 0.8,
+								Audience: []mcp.Role{mcp.RoleUser},
+							},
+						},
+					},
+				},
+			},
+			expectedLength: 1,
+			expectedType:   dive.ToolResultContentTypeText,
+			expectedText:   "Hello world",
+			hasAnnotations: true,
+		},
+		{
+			name: "ImageContent",
+			mcpResult: &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.ImageContent{
+						Type:     "image",
+						Data:     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+						MIMEType: "image/png",
+					},
+				},
+			},
+			expectedLength: 1,
+			expectedType:   dive.ToolResultContentTypeImage,
+			expectedData:   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+			expectedMime:   "image/png",
+		},
+		{
+			name: "AudioContent",
+			mcpResult: &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.AudioContent{
+						Type:     "audio",
+						Data:     "UklGRiQAAABXQVZFZm10IBAAAAABAAEAgLsAAADuAgAEABAAZGF0YQAAAAAA",
+						MIMEType: "audio/wav",
+					},
+				},
+			},
+			expectedLength: 1,
+			expectedType:   dive.ToolResultContentTypeAudio,
+			expectedData:   "UklGRiQAAABXQVZFZm10IBAAAAABAAEAgLsAAADuAgAEABAAZGF0YQAAAAAA",
+			expectedMime:   "audio/wav",
+		},
+		{
+			name: "EmbeddedResource_Text",
+			mcpResult: &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.EmbeddedResource{
+						Type: "resource",
+						Resource: &mcp.TextResourceContents{
+							URI:      "file:///example.txt",
+							MIMEType: "text/plain",
+							Text:     "File content here",
+						},
+					},
+				},
+			},
+			expectedLength: 1,
+			expectedType:   dive.ToolResultContentTypeText,
+			expectedText:   "File content here",
+			hasAnnotations: true,
+		},
+		{
+			name: "EmbeddedResource_Blob",
+			mcpResult: &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.EmbeddedResource{
+						Type: "resource",
+						Resource: &mcp.BlobResourceContents{
+							URI:      "file:///example.bin",
+							MIMEType: "application/octet-stream",
+							Blob:     "SGVsbG8gd29ybGQ=",
+						},
+					},
+				},
+			},
+			expectedLength: 1,
+			expectedType:   dive.ToolResultContentTypeText,
+			expectedText:   "Binary resource: file:///example.bin (application/octet-stream)",
+			hasAnnotations: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ConvertMCPResultToDive(tt.mcpResult)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Len(t, result.Content, tt.expectedLength)
+
+			content := result.Content[0]
+			require.Equal(t, tt.expectedType, content.Type)
+
+			if tt.expectedText != "" {
+				require.Equal(t, tt.expectedText, content.Text)
+			}
+			if tt.expectedData != "" {
+				require.Equal(t, tt.expectedData, content.Data)
+			}
+			if tt.expectedMime != "" {
+				require.Equal(t, tt.expectedMime, content.MimeType)
+			}
+
+			if tt.hasAnnotations {
+				require.NotNil(t, content.Annotations)
+			}
+		})
+	}
+}
+
+func TestConvertMCPResultToDive_Annotations(t *testing.T) {
+	mcpResult := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{
+				Type: "text",
+				Text: "Test with annotations",
+				Annotated: mcp.Annotated{
+					Annotations: &mcp.Annotations{
+						Priority: 0.9,
+						Audience: []mcp.Role{mcp.RoleUser, mcp.RoleAssistant},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := ConvertMCPResultToDive(mcpResult)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Content, 1)
+
+	content := result.Content[0]
+	require.NotNil(t, content.Annotations)
+
+	// Check that MCP annotations are properly converted
+	require.Equal(t, 0.9, content.Annotations["mcp_priority"])
+	audience, ok := content.Annotations["mcp_audience"].([]string)
+	require.True(t, ok)
+	require.Contains(t, audience, "user")
+	require.Contains(t, audience, "assistant")
+}
+
+func TestConvertMCPResultToDive_ErrorResult(t *testing.T) {
+	mcpResult := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{
+				Type: "text",
+				Text: "An error occurred",
+			},
+		},
+		IsError: true,
+	}
+
+	result, err := ConvertMCPResultToDive(mcpResult)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.IsError)
+	require.Equal(t, "An error occurred", result.Content[0].Text)
+}
+
+func TestConvertMCPResultToDive_NilResult(t *testing.T) {
+	result, err := ConvertMCPResultToDive(nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.IsError)
+	require.Equal(t, "MCP tool returned nil result", result.Content[0].Text)
 }

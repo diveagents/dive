@@ -10,9 +10,10 @@ import (
 
 // MCPServerConnection represents a connection to an MCP server
 type MCPServerConnection struct {
-	Client *MCPClient
-	Config ServerConfig
-	Tools  []dive.Tool
+	Client             *MCPClient
+	Config             ServerConfig
+	Tools              []dive.Tool
+	ResourceRepository dive.DocumentRepository
 }
 
 // MCPManager manages multiple MCP server connections and tool discovery
@@ -88,11 +89,18 @@ func (m *MCPManager) initializeServer(ctx context.Context, serverConfig ServerCo
 		m.tools[toolKey] = adapter
 	}
 
+	// Create resource repository if server supports resources
+	var resourceRepo dive.DocumentRepository
+	if client.GetServerCapabilities() != nil && client.GetServerCapabilities().Resources != nil {
+		resourceRepo = NewMCPResourceRepository(client, serverConfig.GetName())
+	}
+
 	// Store the server connection
 	m.servers[serverConfig.GetName()] = &MCPServerConnection{
-		Client: client,
-		Config: serverConfig,
-		Tools:  tools,
+		Client:             client,
+		Config:             serverConfig,
+		Tools:              tools,
+		ResourceRepository: resourceRepo,
 	}
 
 	return nil
@@ -235,4 +243,29 @@ func (m *MCPManager) GetServerNames() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// GetResourceRepository returns the resource repository for a specific server
+func (m *MCPManager) GetResourceRepository(serverName string) dive.DocumentRepository {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	if server, exists := m.servers[serverName]; exists {
+		return server.ResourceRepository
+	}
+	return nil
+}
+
+// GetAllResourceRepositories returns a map of all resource repositories by server name
+func (m *MCPManager) GetAllResourceRepositories() map[string]dive.DocumentRepository {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	repositories := make(map[string]dive.DocumentRepository)
+	for serverName, server := range m.servers {
+		if server.ResourceRepository != nil {
+			repositories[serverName] = server.ResourceRepository
+		}
+	}
+	return repositories
 }

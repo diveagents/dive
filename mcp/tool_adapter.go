@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/diveagents/dive"
 	"github.com/diveagents/dive/schema"
@@ -129,7 +130,7 @@ func (t *MCPToolAdapter) Call(ctx context.Context, input any) (*dive.ToolResult,
 	}
 
 	// Convert MCP result to Dive ToolResult
-	return convertMCPResultToDive(result)
+	return ConvertMCPResultToDive(result)
 }
 
 // convertMCPSchemaToDiv converts MCP JSON Schema to Dive Property
@@ -193,8 +194,75 @@ func convertMCPSchemaToDiv(mcpSchema map[string]interface{}) *schema.Property {
 	return diveSchema
 }
 
-// convertMCPResultToDive converts MCP CallToolResult to Dive ToolResult
-func convertMCPResultToDive(mcpResult *mcp.CallToolResult) (*dive.ToolResult, error) {
+// convertMCPAnnotations converts MCP annotations to Dive annotations format
+func convertMCPAnnotations(mcpAnnotations *mcp.Annotations) map[string]any {
+	if mcpAnnotations == nil {
+		return nil
+	}
+
+	annotations := make(map[string]any)
+
+	if len(mcpAnnotations.Audience) > 0 {
+		audience := make([]string, len(mcpAnnotations.Audience))
+		for i, role := range mcpAnnotations.Audience {
+			audience[i] = string(role)
+		}
+		annotations["mcp_audience"] = audience
+	}
+
+	if mcpAnnotations.Priority > 0 {
+		annotations["mcp_priority"] = mcpAnnotations.Priority
+	}
+
+	return annotations
+}
+
+// extractField attempts to extract a field value from an unknown content type using reflection
+func extractField(content any, fieldName string) string {
+	// Use type assertion to try common patterns first
+	if v, ok := content.(interface{ GetText() string }); ok && fieldName == "Text" {
+		return v.GetText()
+	}
+	if v, ok := content.(interface{ GetData() string }); ok && fieldName == "Data" {
+		return v.GetData()
+	}
+	if v, ok := content.(interface{ GetMIMEType() string }); ok && fieldName == "MIMEType" {
+		return v.GetMIMEType()
+	}
+
+	// Fallback to JSON marshaling and field extraction
+	data, err := json.Marshal(content)
+	if err != nil {
+		return ""
+	}
+
+	var obj map[string]interface{}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return ""
+	}
+
+	if val, ok := obj[strings.ToLower(fieldName)].(string); ok {
+		return val
+	}
+	if val, ok := obj[fieldName].(string); ok {
+		return val
+	}
+
+	return ""
+}
+
+// isImageMimeType checks if a MIME type represents an image
+func isImageMimeType(mimeType string) bool {
+	return strings.HasPrefix(strings.ToLower(mimeType), "image/")
+}
+
+// isAudioMimeType checks if a MIME type represents audio
+func isAudioMimeType(mimeType string) bool {
+	return strings.HasPrefix(strings.ToLower(mimeType), "audio/")
+}
+
+// ConvertMCPResultToDive converts MCP CallToolResult to Dive ToolResult
+func ConvertMCPResultToDive(mcpResult *mcp.CallToolResult) (*dive.ToolResult, error) {
 	if mcpResult == nil {
 		return dive.NewToolResultError("MCP tool returned nil result"), nil
 	}
@@ -211,20 +279,87 @@ func convertMCPResultToDive(mcpResult *mcp.CallToolResult) (*dive.ToolResult, er
 			diveContent.Type = dive.ToolResultContentTypeText
 			diveContent.Text = c.Text
 			if c.Annotations != nil {
-				// diveContent.Annotations = c.Annotations
+				diveContent.Annotations = convertMCPAnnotations(c.Annotations)
 			}
 		case *mcp.ImageContent:
 			diveContent.Type = dive.ToolResultContentTypeImage
 			diveContent.Data = c.Data
 			diveContent.MimeType = c.MIMEType
 			if c.Annotations != nil {
-				// diveContent.Annotations = c.Annotations
+				diveContent.Annotations = convertMCPAnnotations(c.Annotations)
 			}
-		default:
-			// Default to text for unknown types
+		case *mcp.AudioContent:
+			diveContent.Type = dive.ToolResultContentTypeAudio
+			diveContent.Data = c.Data
+			diveContent.MimeType = c.MIMEType
+			if c.Annotations != nil {
+				diveContent.Annotations = convertMCPAnnotations(c.Annotations)
+			}
+		case *mcp.EmbeddedResource:
+			// Handle embedded resources as text with special annotation
 			diveContent.Type = dive.ToolResultContentTypeText
-			jsonBytes, _ := json.Marshal(mcpContent)
-			diveContent.Text = string(jsonBytes)
+
+			// Extract text from the resource contents
+			switch resource := c.Resource.(type) {
+			case *mcp.TextResourceContents:
+				diveContent.Text = resource.Text
+			case *mcp.BlobResourceContents:
+				// For blob resources, describe the resource
+				diveContent.Text = fmt.Sprintf("Binary resource: %s (%s)", resource.URI, resource.MIMEType)
+			default:
+				// For unknown resource types, describe the resource
+				diveContent.Text = "Embedded resource (unknown type)"
+			}
+
+			// Add resource metadata to annotations
+			annotations := make(map[string]any)
+			if c.Annotations != nil {
+				annotations = convertMCPAnnotations(c.Annotations)
+			}
+
+			// Add resource metadata based on type
+			switch resource := c.Resource.(type) {
+			case *mcp.TextResourceContents:
+				annotations["mcp_resource_uri"] = resource.URI
+				if resource.MIMEType != "" {
+					annotations["mcp_resource_mime_type"] = resource.MIMEType
+				}
+			case *mcp.BlobResourceContents:
+				annotations["mcp_resource_uri"] = resource.URI
+				if resource.MIMEType != "" {
+					annotations["mcp_resource_mime_type"] = resource.MIMEType
+				}
+				annotations["mcp_resource_type"] = "blob"
+			}
+			diveContent.Annotations = annotations
+		default:
+			// For unknown content types, try to extract common fields
+			diveContent.Type = dive.ToolResultContentTypeText
+
+			// Try to extract text, data, and mimeType using reflection/type assertion
+			if textField := extractField(mcpContent, "Text"); textField != "" {
+				diveContent.Text = textField
+			} else if dataField := extractField(mcpContent, "Data"); dataField != "" {
+				diveContent.Data = dataField
+				if mimeType := extractField(mcpContent, "MIMEType"); mimeType != "" {
+					diveContent.MimeType = mimeType
+					// If we have data and mime type, treat as appropriate content type
+					if isImageMimeType(mimeType) {
+						diveContent.Type = dive.ToolResultContentTypeImage
+					} else if isAudioMimeType(mimeType) {
+						diveContent.Type = dive.ToolResultContentTypeAudio
+					}
+				}
+			} else {
+				// Last resort: JSON serialize the unknown content
+				jsonBytes, _ := json.Marshal(mcpContent)
+				diveContent.Text = string(jsonBytes)
+			}
+
+			// Add a special annotation for unknown content types
+			diveContent.Annotations = map[string]any{
+				"mcp_unknown_content_type": fmt.Sprintf("%T", mcpContent),
+			}
 		}
 
 		content = append(content, diveContent)

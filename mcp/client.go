@@ -23,10 +23,12 @@ type ServerConfig interface {
 
 // MCPClient wraps the mcp-go client library
 type MCPClient struct {
-	client    *client.Client
-	config    ServerConfig
-	tools     []mcp.Tool
-	connected bool
+	client             *client.Client
+	config             ServerConfig
+	tools              []mcp.Tool
+	resources          []mcp.Resource
+	serverCapabilities *mcp.ServerCapabilities
+	connected          bool
 }
 
 // NewMCPClient creates a new MCP client instance
@@ -70,11 +72,19 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("failed to start MCP client for server %s: %w", c.config.GetName(), err)
 	}
 
-	// Initialize the connection
-	_, err = c.client.Initialize(ctx, mcp.InitializeRequest{
+	// Initialize the connection with enhanced capabilities
+	initResponse, err := c.client.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			Capabilities:    mcp.ClientCapabilities{},
+			Capabilities: mcp.ClientCapabilities{
+				Experimental: make(map[string]any),
+				Roots: &struct {
+					ListChanged bool `json:"listChanged,omitempty"`
+				}{
+					ListChanged: true,
+				},
+				Sampling: &struct{}{},
+			},
 			ClientInfo: mcp.Implementation{
 				Name:    "dive",
 				Version: "1.0.0",
@@ -82,9 +92,11 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to initialize MCP client for server %s: %w", c.config.GetName(), err)
+		return NewMCPError("initialize", c.config.GetName(), fmt.Errorf("%w: %v", ErrInitializationFailed, err))
 	}
 
+	// Store server capabilities for later use
+	c.serverCapabilities = &initResponse.Capabilities
 	c.connected = true
 	return nil
 }
@@ -92,12 +104,12 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 // ListTools retrieves available tools from the MCP server
 func (c *MCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	if !c.connected {
-		return nil, fmt.Errorf("MCP client not connected")
+		return nil, NewMCPError("list_tools", c.config.GetName(), ErrNotConnected)
 	}
 
 	response, err := c.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools from server %s: %w", c.config.GetName(), err)
+		return nil, NewMCPError("list_tools", c.config.GetName(), err)
 	}
 
 	// Filter tools based on configuration
@@ -110,7 +122,7 @@ func (c *MCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 // CallTool executes a tool on the MCP server
 func (c *MCPClient) CallTool(ctx context.Context, name string, arguments map[string]interface{}) (*mcp.CallToolResult, error) {
 	if !c.connected {
-		return nil, fmt.Errorf("MCP client not connected")
+		return nil, NewMCPError("call_tool", c.config.GetName(), ErrNotConnected)
 	}
 
 	request := mcp.CallToolRequest{
@@ -122,10 +134,65 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, arguments map[str
 
 	response, err := c.client.CallTool(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call tool %s on server %s: %w", name, c.config.GetName(), err)
+		return nil, NewMCPError("call_tool", c.config.GetName(), err)
 	}
 
 	return response, nil
+}
+
+// ListResources retrieves available resources from the MCP server
+func (c *MCPClient) ListResources(ctx context.Context) ([]mcp.Resource, error) {
+	if !c.connected {
+		return nil, NewMCPError("list_resources", c.config.GetName(), ErrNotConnected)
+	}
+
+	// Check if server supports resources
+	if c.serverCapabilities == nil || c.serverCapabilities.Resources == nil {
+		return nil, NewMCPError("list_resources", c.config.GetName(), ErrUnsupportedOperation)
+	}
+
+	response, err := c.client.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		return nil, NewMCPError("list_resources", c.config.GetName(), err)
+	}
+
+	c.resources = response.Resources
+	return response.Resources, nil
+}
+
+// ReadResource reads a specific resource from the MCP server
+func (c *MCPClient) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	if !c.connected {
+		return nil, NewMCPError("read_resource", c.config.GetName(), ErrNotConnected)
+	}
+
+	// Check if server supports resources
+	if c.serverCapabilities == nil || c.serverCapabilities.Resources == nil {
+		return nil, NewMCPError("read_resource", c.config.GetName(), ErrUnsupportedOperation)
+	}
+
+	request := mcp.ReadResourceRequest{
+		Params: mcp.ReadResourceParams{
+			URI: uri,
+		},
+	}
+
+	response, err := c.client.ReadResource(ctx, request)
+	if err != nil {
+		return nil, NewMCPError("read_resource", c.config.GetName(), err)
+	}
+
+	return response, nil
+}
+
+// GetResources returns the cached list of resources
+func (c *MCPClient) GetResources() []mcp.Resource {
+	return c.resources
+}
+
+// GetServerCapabilities returns the server capabilities
+func (c *MCPClient) GetServerCapabilities() *mcp.ServerCapabilities {
+	return c.serverCapabilities
 }
 
 // GetTools returns the cached list of tools
