@@ -489,3 +489,148 @@ func TestExecutionStatusTransitions(t *testing.T) {
 	// Finally completed
 	require.Equal(t, ExecutionStatusCompleted, execution.Status())
 }
+
+// TestExecutionResumeFromFailure tests resuming a failed execution
+func TestExecutionResumeFromFailure(t *testing.T) {
+	// Create a workflow that will fail on the second step
+	testWorkflow, err := workflow.New(workflow.Options{
+		Name: "resume-test-workflow",
+		Inputs: []*workflow.Input{
+			{Name: "should_fail", Type: "boolean", Default: false},
+		},
+		Steps: []*workflow.Step{
+			workflow.NewStep(workflow.StepOptions{
+				Name:   "step1",
+				Type:   "script",
+				Script: `"step1_completed"`,
+				Store:  "step1_result",
+				Next: []*workflow.Edge{
+					{Step: "step2"},
+				},
+			}),
+			workflow.NewStep(workflow.StepOptions{
+				Name:   "step2",
+				Type:   "script",
+				Script: `if inputs.should_fail { error("Intentional failure for testing") } else { "step2_completed" }`,
+				Store:  "step2_result",
+				Next: []*workflow.Edge{
+					{Step: "step3"},
+				},
+			}),
+			workflow.NewStep(workflow.StepOptions{
+				Name:   "step3",
+				Type:   "script",
+				Script: `state.step1_result + "_" + state.step2_result + "_step3_completed"`,
+				Store:  "final_result",
+			}),
+		},
+	})
+	require.NoError(t, err)
+
+	env := &Environment{
+		agents:    make(map[string]dive.Agent),
+		workflows: make(map[string]*workflow.Workflow),
+		logger:    slogger.NewDevNullLogger(),
+	}
+	require.NoError(t, env.Start(context.Background()))
+	defer env.Stop(context.Background())
+
+	ctx := context.Background()
+	checkpointer := NewMockCheckpointer()
+	executionID := "resume-test-" + NewExecutionID()
+
+	t.Run("execution fails and can be resumed", func(t *testing.T) {
+		// Step 1: Create and run execution that will fail
+		execution1, err := NewExecution(ExecutionOptions{
+			Workflow:    testWorkflow,
+			Environment: env,
+			Inputs: map[string]interface{}{
+				"should_fail": true, // This will cause step2 to fail
+			},
+			ExecutionID:  executionID,
+			Checkpointer: checkpointer,
+			Logger:       slogger.NewDevNullLogger(),
+		})
+		require.NoError(t, err)
+
+		// This should fail on step2
+		err = execution1.Run(ctx)
+		require.Error(t, err)
+		require.Equal(t, ExecutionStatusFailed, execution1.Status())
+
+		// Verify checkpoint was saved with failure
+		checkpoint, err := checkpointer.LoadCheckpoint(ctx, executionID)
+		require.NoError(t, err)
+		require.NotNil(t, checkpoint)
+		require.Equal(t, "failed", checkpoint.Status)
+		require.NotEmpty(t, checkpoint.Error)
+
+		// Verify step1 completed but step2 failed
+		require.Contains(t, checkpoint.State, "step1_result")
+		require.Equal(t, "step1_completed", checkpoint.State["step1_result"])
+		require.NotContains(t, checkpoint.State, "step2_result") // step2 failed
+
+		// Step 2: Create new execution for resuming with different inputs
+		execution2, err := NewExecution(ExecutionOptions{
+			Workflow:    testWorkflow,
+			Environment: env,
+			Inputs: map[string]interface{}{
+				"should_fail": false, // This time, don't fail
+			},
+			ExecutionID:  executionID,
+			Checkpointer: checkpointer,
+			Logger:       slogger.NewDevNullLogger(),
+		})
+		require.NoError(t, err)
+
+		// Resume from failure should succeed
+		err = execution2.ResumeFromFailure(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ExecutionStatusCompleted, execution2.Status())
+
+		// Verify final state contains results from all steps
+		finalCheckpoint, err := checkpointer.LoadCheckpoint(ctx, executionID)
+		require.NoError(t, err)
+		require.Equal(t, "completed", finalCheckpoint.Status)
+		require.Contains(t, finalCheckpoint.State, "final_result")
+		require.Equal(t, "step1_completed_step2_completed_step3_completed",
+			finalCheckpoint.State["final_result"])
+	})
+
+	t.Run("normal Run should fail on already failed execution", func(t *testing.T) {
+		// Create another execution that fails
+		execution, err := NewExecution(ExecutionOptions{
+			Workflow:    testWorkflow,
+			Environment: env,
+			Inputs: map[string]interface{}{
+				"should_fail": true,
+			},
+			ExecutionID:  "fail-test-" + NewExecutionID(),
+			Checkpointer: checkpointer,
+			Logger:       slogger.NewDevNullLogger(),
+		})
+		require.NoError(t, err)
+
+		// Run and fail
+		err = execution.Run(ctx)
+		require.Error(t, err)
+
+		// Create new execution with same ID
+		execution2, err := NewExecution(ExecutionOptions{
+			Workflow:    testWorkflow,
+			Environment: env,
+			Inputs: map[string]interface{}{
+				"should_fail": false,
+			},
+			ExecutionID:  execution.ID(),
+			Checkpointer: checkpointer,
+			Logger:       slogger.NewDevNullLogger(),
+		})
+		require.NoError(t, err)
+
+		// Normal Run should return the previous error without retrying
+		err = execution2.Run(ctx)
+		require.Error(t, err)
+		require.Equal(t, ExecutionStatusFailed, execution2.Status())
+	})
+}

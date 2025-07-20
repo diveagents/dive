@@ -328,9 +328,21 @@ func (e *Execution) LoadFromCheckpoint(ctx context.Context) error {
 
 // Run executes the workflow to completion with simple checkpointing
 func (e *Execution) Run(ctx context.Context) error {
+	return e.runWithResume(ctx, false)
+}
+
+// ResumeFromFailure attempts to resume a failed execution from the last checkpoint
+func (e *Execution) ResumeFromFailure(ctx context.Context) error {
+	return e.runWithResume(ctx, true)
+}
+
+// runWithResume executes the workflow with optional resume capability
+func (e *Execution) runWithResume(ctx context.Context, allowResume bool) error {
 	e.mutex.Lock()
 	e.status = ExecutionStatusRunning
-	e.startTime = time.Now()
+	if e.startTime.IsZero() {
+		e.startTime = time.Now()
+	}
 	e.mutex.Unlock()
 
 	// Try to load from checkpoint first
@@ -344,10 +356,24 @@ func (e *Execution) Run(ctx context.Context) error {
 		return nil
 	}
 
-	// If failed, return the error
+	// Handle failed executions
 	if e.status == ExecutionStatusFailed {
-		e.logger.Info("execution already failed from checkpoint")
-		return e.err
+		if !allowResume {
+			e.logger.Info("execution already failed from checkpoint")
+			return e.err
+		}
+
+		// Reset failed paths for resumption
+		if err := e.resetFailedPaths(ctx); err != nil {
+			return fmt.Errorf("failed to reset failed paths for resumption: %w", err)
+		}
+
+		e.logger.Info("resuming execution from failure", "original_error", e.err.Error())
+		// Clear the previous error and reset status to running
+		e.mutex.Lock()
+		e.err = nil
+		e.status = ExecutionStatusRunning
+		e.mutex.Unlock()
 	}
 
 	// Start execution paths
@@ -1362,4 +1388,78 @@ func (e *Execution) convertRisorEachValue(obj object.Object) ([]any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported risor result type for 'each': %T", obj)
 	}
+}
+
+// resetFailedPaths resets failed paths for resumption by finding the last successful step
+func (e *Execution) resetFailedPaths(ctx context.Context) error {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	// Find failed paths and reset them
+	for pathID, pathState := range e.paths {
+		if pathState.Status == PathStatusFailed {
+			// Find the step that was running when it failed
+			var currentStep *workflow.Step
+			var ok bool
+
+			if pathState.CurrentStep != "" {
+				// Try to restart from the step that failed
+				currentStep, ok = e.workflow.Graph().Get(pathState.CurrentStep)
+				if !ok {
+					// If the current step is not found, try to find a suitable restart point
+					e.logger.Warn("failed step not found in workflow, attempting to find restart point",
+						"path_id", pathID, "failed_step", pathState.CurrentStep)
+					currentStep = e.findRestartStep(pathState)
+				}
+			}
+
+			if currentStep == nil {
+				// If we can't find a restart point, start from the beginning
+				e.logger.Warn("could not find restart point for failed path, restarting from beginning",
+					"path_id", pathID)
+				currentStep = e.workflow.Start()
+			}
+
+			// Reset path state for resumption
+			pathState.Status = PathStatusPending
+			pathState.ErrorMessage = ""
+			pathState.CurrentStep = currentStep.Name()
+
+			// Recreate the execution path
+			e.activePaths[pathID] = &executionPath{
+				id:          pathID,
+				currentStep: currentStep,
+			}
+
+			e.logger.Info("reset failed path for resumption",
+				"path_id", pathID,
+				"restart_step", currentStep.Name())
+		}
+	}
+
+	return nil
+}
+
+// findRestartStep attempts to find a suitable step to restart from based on completed step outputs
+func (e *Execution) findRestartStep(pathState *PathState) *workflow.Step {
+	// Find the last successfully completed step by checking step outputs
+	var lastCompletedStep *workflow.Step
+
+	for stepName := range pathState.StepOutputs {
+		if step, ok := e.workflow.Graph().Get(stepName); ok {
+			// This step completed successfully, it could be a restart point
+			// Check if it has next steps
+			if len(step.Next()) > 0 {
+				// Find the first next step that exists in the workflow
+				for _, edge := range step.Next() {
+					if nextStep, exists := e.workflow.Graph().Get(edge.Step); exists {
+						return nextStep
+					}
+				}
+			}
+			lastCompletedStep = step
+		}
+	}
+
+	return lastCompletedStep
 }

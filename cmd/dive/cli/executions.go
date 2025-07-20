@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/diveagents/dive/environment"
+	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 )
@@ -66,9 +67,9 @@ func listExecutions(statusFilter string) error {
 
 	if len(executions) == 0 {
 		if statusFilter != "" {
-			fmt.Printf("%s No executions found with status '%s'.\n", infoStyle.Sprint("ℹ️"), statusFilter)
+			fmt.Printf("%s No executions found with status '%s'.\n", color.New(color.FgCyan).Sprint("ℹ️"), statusFilter)
 		} else {
-			fmt.Printf("%s No executions found.\n", infoStyle.Sprint("ℹ️"))
+			fmt.Printf("%s No executions found.\n", color.New(color.FgCyan).Sprint("ℹ️"))
 		}
 		return nil
 	}
@@ -138,9 +139,80 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
+var resumeCmd = &cobra.Command{
+	Use:   "resume <execution-id>",
+	Short: "Resume a failed workflow execution",
+	Long:  "Resume a previously failed workflow execution from the point of failure using the latest checkpoint",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		executionID := args[0]
+		return resumeExecution(executionID)
+	},
+}
+
+// resumeExecution resumes a failed execution
+func resumeExecution(executionID string) error {
+	// Get database path
+	databasePath, err := getDiveDatabaseDir()
+	if err != nil {
+		return fmt.Errorf("error getting database path: %v", err)
+	}
+
+	// Create checkpointer to load execution data
+	checkpointer, err := environment.NewFileCheckpointer(databasePath)
+	if err != nil {
+		return fmt.Errorf("error creating checkpointer: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Load the checkpoint to verify execution exists and is failed
+	checkpoint, err := checkpointer.LoadCheckpoint(ctx, executionID)
+	if err != nil {
+		return fmt.Errorf("error loading checkpoint for execution %s: %v", executionID, err)
+	}
+
+	if checkpoint == nil {
+		return fmt.Errorf("❌ Execution %s not found", executionID)
+	}
+
+	// Check if execution is in a resumable state
+	if checkpoint.Status != "failed" {
+		return fmt.Errorf("❌ Cannot resume execution %s: status is %s (only failed executions can be resumed)",
+			executionID, checkpoint.Status)
+	}
+
+	// Confirm the resume action
+	fmt.Printf("📋 Execution Details:\n")
+	fmt.Printf("   ID: %s\n", executionID)
+	fmt.Printf("   Workflow: %s\n", checkpoint.WorkflowName)
+	fmt.Printf("   Status: %s\n", formatExecutionStatus(checkpoint.Status))
+	fmt.Printf("   Failed at: %s\n", checkpoint.EndTime.Format("2006-01-02 15:04:05"))
+	if checkpoint.Error != "" {
+		fmt.Printf("   Error: %s\n", color.New(color.FgYellow).Sprint(checkpoint.Error))
+	}
+	fmt.Println()
+
+	if !ConfirmAction("resume", fmt.Sprintf("execution %s", executionID)) {
+		fmt.Printf("%s Resume operation cancelled.\n", color.New(color.FgCyan).Sprint("ℹ️"))
+		return nil
+	}
+
+	fmt.Printf("%s Resuming execution %s...\n", color.New(color.FgCyan).Sprint("🔄"), executionID)
+
+	// Load the workflow from config (we need the workflow definition to resume)
+	// For now, we'll show an error message about needing to provide workflow path
+	// This could be enhanced later to store workflow definition in checkpoint
+
+	return fmt.Errorf("❌ Resume functionality integrated with run command.\n\n"+
+		"💡 To resume this execution, use the run command with --resume flag:\n"+
+		"   dive run --resume %s <workflow-file>", executionID)
+}
+
 func init() {
 	rootCmd.AddCommand(executionsCmd)
 	executionsCmd.AddCommand(listCmd)
+	executionsCmd.AddCommand(resumeCmd)
 
 	// Add flags using the utilities patterns from common.go
 	listCmd.Flags().StringVarP(&statusFilterFlag, "status", "s", "", "Filter by execution status (pending, running, completed, failed)")

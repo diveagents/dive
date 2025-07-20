@@ -32,7 +32,7 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func runWorkflow(filePath string, workflowName string, logLevel slogger.LogLevel) error {
+func runWorkflow(filePath string, workflowName string, logLevel slogger.LogLevel, resumeExecutionID string) error {
 	startTime := time.Now()
 
 	ctx := context.Background()
@@ -48,25 +48,26 @@ func runWorkflow(filePath string, workflowName string, logLevel slogger.LogLevel
 	basePath := ""
 
 	// If a single file is provided, copy it to a temporary directory
-	// and use that as the config directory.
 	if !fi.IsDir() {
-		tmpDir, err := os.MkdirTemp("", "dive-config-*")
+		// Create temp directory
+		tempDir, err := os.MkdirTemp("", "dive-workflow-*")
 		if err != nil {
-			return fmt.Errorf("error creating temp directory: %v", err)
+			return fmt.Errorf("❌ Failed to create temporary directory: %v", err)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer os.RemoveAll(tempDir)
 
-		dst := filepath.Join(tmpDir, filepath.Base(filePath))
-		if err := copyFile(filePath, dst); err != nil {
-			return err
+		// Copy the file to temp directory
+		fileName := filepath.Base(filePath)
+		destPath := filepath.Join(tempDir, fileName)
+		if err := copyFile(filePath, destPath); err != nil {
+			return fmt.Errorf("❌ Failed to copy workflow file: %v", err)
 		}
-		configDir = tmpDir
-		// base path should be the original directory containing the file
+
+		configDir = tempDir
 		basePath = filepath.Dir(filePath)
-	} else {
-		basePath = filePath
 	}
 
+	// Create build options
 	buildOptions := []config.BuildOption{
 		config.WithLogger(logger),
 		config.WithBasePath(basePath),
@@ -82,19 +83,21 @@ func runWorkflow(filePath string, workflowName string, logLevel slogger.LogLevel
 	}
 	defer env.Stop(ctx)
 
+	// Determine workflow name
 	if workflowName == "" {
 		workflows := env.Workflows()
-		if len(workflows) != 1 {
-			if len(workflows) == 0 {
-				return fmt.Errorf("❌ No workflows found in the configuration\n\n💡 Make sure your YAML file contains a workflow definition")
-			}
-			var workflowNames []string
-			for _, wf := range workflows {
-				workflowNames = append(workflowNames, wf.Name())
-			}
-			return fmt.Errorf("❌ Multiple workflows found. Specify which one to run with --workflow:\n   Available workflows: %v", workflowNames)
+		if len(workflows) == 0 {
+			return fmt.Errorf("❌ No workflows found in %s", filePath)
 		}
-		workflowName = workflows[0].Name()
+		if len(workflows) == 1 {
+			workflowName = workflows[0].Name()
+		} else {
+			var workflowNames []string
+			for _, w := range workflows {
+				workflowNames = append(workflowNames, w.Name())
+			}
+			return fmt.Errorf("❌ Multiple workflows found, specify one using --workflow: %v", workflowNames)
+		}
 	}
 
 	wf, err := env.GetWorkflow(workflowName)
@@ -121,28 +124,59 @@ func runWorkflow(filePath string, workflowName string, logLevel slogger.LogLevel
 		return fmt.Errorf("error creating checkpointer: %v", err)
 	}
 
-	// Create execution with persistent checkpoint-based model
-	execution, err := environment.NewExecution(environment.ExecutionOptions{
-		Workflow:     wf,
-		Environment:  env,
-		Inputs:       getUserVariables(),
-		Logger:       logger,
-		Formatter:    formatter,
-		Checkpointer: checkpointer,
-	})
-	if err != nil {
-		duration := time.Since(startTime)
-		formatter.PrintWorkflowError(err, duration)
-		return fmt.Errorf("error creating execution: %v", err)
-	}
+	var execution *environment.Execution
 
-	formatter.PrintExecutionID(execution.ID())
+	// Handle resume vs new execution
+	if resumeExecutionID != "" {
+		// Create execution with the specific execution ID for resuming
+		execution, err = environment.NewExecution(environment.ExecutionOptions{
+			Workflow:     wf,
+			Environment:  env,
+			Inputs:       getUserVariables(),
+			Logger:       logger,
+			Formatter:    formatter,
+			Checkpointer: checkpointer,
+			ExecutionID:  resumeExecutionID,
+		})
+		if err != nil {
+			duration := time.Since(startTime)
+			formatter.PrintWorkflowError(err, duration)
+			return fmt.Errorf("error creating execution for resume: %v", err)
+		}
 
-	if err := execution.Run(ctx); err != nil {
-		duration := time.Since(startTime)
-		formatter.PrintWorkflowError(err, duration)
-		formatter.PrintExecutionNextSteps(execution.ID())
-		return fmt.Errorf("error running workflow: %v", err)
+		fmt.Printf("🔄 Resuming execution %s...\n", resumeExecutionID)
+
+		// Use ResumeFromFailure instead of Run
+		if err := execution.ResumeFromFailure(ctx); err != nil {
+			duration := time.Since(startTime)
+			formatter.PrintWorkflowError(err, duration)
+			formatter.PrintExecutionNextSteps(execution.ID())
+			return fmt.Errorf("error resuming workflow: %v", err)
+		}
+	} else {
+		// Create execution with persistent checkpoint-based model
+		execution, err = environment.NewExecution(environment.ExecutionOptions{
+			Workflow:     wf,
+			Environment:  env,
+			Inputs:       getUserVariables(),
+			Logger:       logger,
+			Formatter:    formatter,
+			Checkpointer: checkpointer,
+		})
+		if err != nil {
+			duration := time.Since(startTime)
+			formatter.PrintWorkflowError(err, duration)
+			return fmt.Errorf("error creating execution: %v", err)
+		}
+
+		formatter.PrintExecutionID(execution.ID())
+
+		if err := execution.Run(ctx); err != nil {
+			duration := time.Since(startTime)
+			formatter.PrintWorkflowError(err, duration)
+			formatter.PrintExecutionNextSteps(execution.ID())
+			return fmt.Errorf("error running workflow: %v", err)
+		}
 	}
 
 	duration := time.Since(startTime)
@@ -153,7 +187,7 @@ func runWorkflow(filePath string, workflowName string, logLevel slogger.LogLevel
 var runCmd = &cobra.Command{
 	Use:   "run [file or directory]",
 	Short: "Run a workflow",
-	Long:  "Run a workflow with automatic checkpoint-based state management",
+	Long:  "Run a workflow with automatic checkpoint-based state management, or resume a failed execution",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		filePath := args[0]
@@ -162,7 +196,12 @@ var runCmd = &cobra.Command{
 			fmt.Println(workflowError.Sprint(err))
 			os.Exit(1)
 		}
-		if err := runWorkflow(filePath, workflowName, getLogLevel()); err != nil {
+		resumeExecutionID, err := cmd.Flags().GetString("resume")
+		if err != nil {
+			fmt.Println(workflowError.Sprint(err))
+			os.Exit(1)
+		}
+		if err := runWorkflow(filePath, workflowName, getLogLevel(), resumeExecutionID); err != nil {
 			fmt.Println(workflowError.Sprint(err))
 			os.Exit(1)
 		}
@@ -173,4 +212,5 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 
 	runCmd.Flags().StringP("workflow", "w", "", "Name of the workflow to run")
+	runCmd.Flags().StringP("resume", "r", "", "Resume a failed execution by providing its execution ID")
 }
