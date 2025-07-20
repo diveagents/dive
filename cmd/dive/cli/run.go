@@ -113,13 +113,22 @@ func runWorkflow(filePath string, workflowName string, logLevel slogger.LogLevel
 	formatter := NewWorkflowFormatter()
 	formatter.PrintWorkflowHeader(wf, getUserVariables())
 
-	// Create execution with simplified checkpoint-based model
+	// Create file-based checkpointer for persistent execution state
+	checkpointer, err := environment.NewFileCheckpointer("")
+	if err != nil {
+		duration := time.Since(startTime)
+		formatter.PrintWorkflowError(err, duration)
+		return fmt.Errorf("error creating checkpointer: %v", err)
+	}
+
+	// Create execution with persistent checkpoint-based model
 	execution, err := environment.NewExecution(environment.ExecutionOptions{
-		Workflow:    wf,
-		Environment: env,
-		Inputs:      getUserVariables(),
-		Logger:      logger,
-		Formatter:   formatter,
+		Workflow:     wf,
+		Environment:  env,
+		Inputs:       getUserVariables(),
+		Logger:       logger,
+		Formatter:    formatter,
+		Checkpointer: checkpointer,
 	})
 	if err != nil {
 		duration := time.Since(startTime)
@@ -150,11 +159,11 @@ var runCmd = &cobra.Command{
 		filePath := args[0]
 		workflowName, err := cmd.Flags().GetString("workflow")
 		if err != nil {
-			fmt.Println(errorStyle.Sprint(err))
+			fmt.Println(workflowError.Sprint(err))
 			os.Exit(1)
 		}
 		if err := runWorkflow(filePath, workflowName, getLogLevel()); err != nil {
-			fmt.Println(errorStyle.Sprint(err))
+			fmt.Println(workflowError.Sprint(err))
 			os.Exit(1)
 		}
 	},

@@ -18,9 +18,10 @@ import (
 var (
 	boldStyle     = color.New(color.Bold)
 	successStyle  = color.New(color.FgGreen)
-	errorStyle    = color.New(color.FgRed)
 	yellowStyle   = color.New(color.FgYellow)
 	thinkingStyle = color.New(color.FgMagenta)
+	errorStyle    = color.New(color.FgRed)
+	runningStyle  = color.New(color.FgYellow)
 )
 
 func chatMessage(ctx context.Context, message string, agent dive.Agent) error {

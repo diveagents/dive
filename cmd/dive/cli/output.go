@@ -18,7 +18,6 @@ var (
 	headerStyle     = color.New(color.FgCyan, color.Bold)
 	workflowSuccess = color.New(color.FgGreen, color.Bold)
 	workflowError   = color.New(color.FgRed, color.Bold)
-	warningStyle    = color.New(color.FgYellow, color.Bold)
 	infoStyle       = color.New(color.FgCyan)
 	stepStyle       = color.New(color.FgMagenta, color.Bold)
 	inputStyle      = color.New(color.FgCyan)

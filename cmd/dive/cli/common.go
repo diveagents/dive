@@ -22,18 +22,13 @@ func getDiveConfigDir() (string, error) {
 	return diveDir, nil
 }
 
-// getDatabasePath returns the database path, using the provided override or defaulting to ~/.dive/executions.db
-func getDatabasePath(databaseFlag string) (string, error) {
-	if databaseFlag != "" {
-		return databaseFlag, nil
-	}
-
+// getDiveDatabaseDir returns the database directory
+func getDiveDatabaseDir() (string, error) {
 	diveDir, err := getDiveConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("error getting dive config directory: %v", err)
 	}
-
-	return filepath.Join(diveDir, "executions.db"), nil
+	return filepath.Join(diveDir, "executions"), nil
 }
 
 // validateExecutionStatus validates and suggests valid status values
@@ -52,8 +47,8 @@ func validateExecutionStatus(status string) error {
 	return fmt.Errorf("❌ Invalid status '%s'\n\n💡 Valid status values: %s", status, strings.Join(validStatuses, ", "))
 }
 
-// confirmAction prompts the user for confirmation with a standardized message
-func confirmAction(action, target string) bool {
+// ConfirmAction prompts the user for confirmation with a standardized message
+func ConfirmAction(action, target string) bool {
 	fmt.Printf("❓ Are you sure you want to %s %s? [y/N]: ", action, target)
 	var response string
 	fmt.Scanln(&response)
@@ -69,32 +64,10 @@ func formatExecutionStatus(status string) string {
 	case "failed":
 		return errorStyle.Sprint("✗ " + status)
 	case "running":
-		return warningStyle.Sprint("⚠ " + status)
+		return runningStyle.Sprint("⚠ " + status)
 	case "pending":
 		return infoStyle.Sprint("⏳ " + status)
 	default:
 		return infoStyle.Sprint("• " + status)
 	}
-}
-
-// suggestWorkflowPaths provides helpful suggestions when workflow files are not found
-func suggestWorkflowPaths() string {
-	suggestions := []string{
-		"examples/workflows/current_time/current_time.yaml",
-		"examples/workflows/research/research.yaml",
-		"examples/workflows/company_overview/company_overview.yaml",
-	}
-
-	var availableSuggestions []string
-	for _, suggestion := range suggestions {
-		if _, err := os.Stat(suggestion); err == nil {
-			availableSuggestions = append(availableSuggestions, suggestion)
-		}
-	}
-
-	if len(availableSuggestions) > 0 {
-		return fmt.Sprintf("\n💡 Try one of these example workflows:\n   %s", strings.Join(availableSuggestions, "\n   "))
-	}
-
-	return "\n💡 Make sure the workflow file exists and is accessible"
 }
